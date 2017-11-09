@@ -1,8 +1,8 @@
 #include <iostream>
+#include <cstdio>
 #include <getopt.h>
 #include <string>
 #include "Log.h"
-
 
 void usage(){
 	std::cout<<"So Rebuilder  --Powered by giglf\n"
@@ -11,13 +11,12 @@ void usage(){
 			 <<"\n"
 			 <<"option: \n"
 			 <<"    -o --output <outputfile>   Specify the output file name. Or append \"_repaired\" default.\n"
-			 <<"    -c --check                 Check the damage level.\n"
+			 <<"    -c --check                 Check the damage level and print it.\n"
 			 <<"    -v --verbose               Print the verbose repair information\n"
 			 <<"    -h --help                  Print this usage.\n"
 			 <<"    -d --debug                 Print this program debug log."
 			 <<std::endl;
 }
-
 
 /* Using to store the command line argument. */
 struct GlobalArgument{
@@ -82,7 +81,6 @@ int main(int argc, char *argv[]){
 	if(!GlobalArgv.isVaild) { usage(); return 1; }
 	if(GlobalArgv.debug) { DEBUG = true; LOG("=====Debug modol=====");}
 	if(GlobalArgv.verbose) { VERBOSE = true; DLOG("verbose set"); }
-	
 	if(GlobalArgv.outFileName.empty()){
 		GlobalArgv.outFileName = GlobalArgv.inFileName.substr(0, GlobalArgv.inFileName.size()-3) + "_repaired.so";
 	}
@@ -90,7 +88,13 @@ int main(int argc, char *argv[]){
 	DLOG("OutputFile: %s", GlobalArgv.outFileName.c_str());
 
 
+	//TODO: ELFReader reader(GlobalArgv.inFileName);
+	
+	if(GlobalArgv.check){
+		//TODO: elfReader.damagePrint();
+	}
 
+	//TODO: ELFRebuilder rebuilder(reader);
 
 	
 	return 0;
