@@ -10,11 +10,21 @@ public:
 	~ELFReader();
 
 	void load();
+	bool readSofile();
 	void damagePrint();
 private:
 
+	bool readElfHeader();
+	bool verifyElfHeader();
+	bool readProgramHeader();
+	bool readSectionHeader();
+	bool readOtherPart();
+
+	bool loadFileData(void *addr, size_t len, int offset);
+
 	const char* filename;
-	const FILE* inputFile;
+	FILE* inputFile;
+
 	bool isLoad;
 	/** 
 	 * This is a parameter define by myself, which target at 
@@ -47,6 +57,7 @@ private:
 	Elf32_Half phdr_entrySize;	// program header entry size
 	size_t phdr_num;			// the number of program header 
 
+	void *midPart;				// the load address of the middle part between program table and section table
 	Elf32_Addr midPart_start;	// start address between program table and section table
 	Elf32_Addr midPart_end;		// end address between program table and section table 
 
