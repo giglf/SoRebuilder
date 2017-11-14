@@ -3,8 +3,8 @@
 
 #include <stdio.h>
 
-static bool VERBOSE = false;
-static bool DEBUG = false;
+extern bool VERBOSE;
+extern bool DEBUG;
 
 
 #define VLOG(fmt, ...) if(VERBOSE) printf(fmt "\n", ##__VA_ARGS__)			//verbose log
