@@ -1,11 +1,12 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include "ELFReader.h"
 #include "Log.h"
 
 ELFReader::ELFReader(const char *filename)
-	: filename(filename), inputFile(NULL), damageLevel(0), isLoad(false),
+	: filename(filename), inputFile(NULL), damageLevel(-1), isLoad(false),
 	  phdr_table(NULL), phdr_entrySize(0), phdr_num(0),
 	  midPart_start(0), midPart_end(0), 
 	  shdr_table(NULL), shdr_entrySize(0), shdr_num(0),
@@ -26,17 +27,15 @@ ELFReader::~ELFReader(){
 
 bool ELFReader::readSofile(){
 	if(!(readElfHeader()&&verifyElfHeader()&&readProgramHeader())){
-		ELOG("so-file invaild.");
+		ELOG("so-file invalid.");
 		exit(EXIT_FAILURE);
 	}
 
 	// try to figure out which plan should use to repair the so-file.
 	if(readSectionHeader()){
-		//TODO: if(checkSectionHeader()){
-		// 	damageLevel = 0;
-		// } else{
-		// 	damageLevel = 1;
-		// }
+		// damagelevel should set inside checkSectionHeader()
+		checkSectionHeader();
+	
 		if(!readOtherPart()){
 			ELOG("Read other part data failed.");
 			exit(EXIT_FAILURE);
@@ -47,9 +46,24 @@ bool ELFReader::readSofile(){
 	return true;
 }
 
+void ELFReader::damagePrint(){
+	switch(damageLevel){
+		case -1:
+			LOG("Not verify yet."); break;
+		case 0:
+			LOG("\"%s\" is perfect. Do not need to be repaired.", filename); break;
+		case 1:
+			LOG("\"%s\" section invalid. But still have sh_size. Can use plan A to repair.", filename); break;
+		case 2:
+			LOG("\"%s\" section totally damage. Should use plan B to repair.", filename); break;
+		case 3:
+			LOG("\"%s\" is an invalid elf file. Cannot be run.", filename); break;
+	}
+}
+
 bool ELFReader::readElfHeader(){
-	size_t sz = fread(&elf_header, sizeof(elf_header), 1, inputFile);
-	DLOG("ReadELFHeader");
+	size_t sz = fread(&elf_header, sizeof(char), sizeof(elf_header), inputFile);
+	
 	if(sz < 0){
 		ELOG("Cannot read file \"%s\"", filename);
 		return false;
@@ -126,8 +140,8 @@ bool ELFReader::readProgramHeader(){
 
 bool ELFReader::readSectionHeader(){
 	if(elf_header.e_shnum < 1){
-		// Because program vaild is necessary. So we use ELOG print the error message.
-		// But section need to be repaired. So we accept it invaild.
+		// Because program valid is necessary. So we use ELOG print the error message.
+		// But section need to be repaired. So we accept it invalid.
 		// We use VLOG for that who want verbose information.
 		VLOG("\"%s\" don't have valid section num.", filename);
 		return false;
@@ -157,7 +171,7 @@ bool ELFReader::readSectionHeader(){
 /**
  * Only call after read section header success.
  * Just for build the new file.
- * So we can assume that program header and section header vaild here. 
+ * So we can assume that program header and section header valid here. 
  */
 bool ELFReader::readOtherPart(){
 	midPart_start = elf_header.e_phoff + phdr_num*phdr_entrySize;
@@ -172,6 +186,135 @@ bool ELFReader::readOtherPart(){
 
 	DLOG("Read the other part data success.");
 	return true;
+}
+
+/**
+ * Just verify the status of section header.
+ * Do not try to repair it.
+ */
+bool ELFReader::checkSectionHeader(){
+	//check SHN_UNDEF section
+	Elf32_Shdr temp;
+	memset((void *)&temp, 0, sizeof(Elf32_Shdr));
+	if(memcmp(shdr_table, &temp, sizeof(Elf32_Shdr))){
+		VLOG("Wrong section data in 0 section header.");
+		damageLevel = 2;
+		return false;
+	}
+
+	// Get the two load segment index at phdr_table.
+	// Thus wo can use segment load address and offset 
+	// to check the section header.
+	// And get the interp segment so we can get the .interp
+	// section load offset and address.
+	int interpIndex = -1;
+	int loadIndex[2] = {-1, -1};
+	for(int i=0, j=0;i<phdr_num;i++){
+		if(phdr_table[i].p_type == PT_LOAD){
+			loadIndex[j++] = i;
+		}
+		if(phdr_table[i].p_type == PT_INTERP){
+			interpIndex = i;
+		}
+	}
+
+	bool isShdrValid = true;
+	//check .interp section
+	if(interpIndex != -1){	
+		if(shdr_table[1].sh_size != phdr_table[interpIndex].p_memsz){
+			VLOG("Error shdr_size at index 1");
+			damageLevel = 2;
+			return false;
+		}
+
+		if(shdr_table[1].sh_addr != phdr_table[interpIndex].p_vaddr ||
+		shdr_table[1].sh_offset != phdr_table[interpIndex].p_offset){
+			// Because we haven't checked the other section size.
+			// We not sure whether the other section size available.
+			// Thus we cannot return immediately.
+			VLOG("Not valid section address or offset at section index 1.");
+			isShdrValid = false;
+		}
+	} else{
+		if(shdr_table[1].sh_size == 0 || shdr_table[1].sh_addr == 0 || shdr_table == 0){
+			VLOG("Wrong section header at index 1");
+			damageLevel = 2;
+			return false;
+		}
+	}
+	// check each section address and offset if size not empty.
+	// Here to check the first LOAD segment.
+	int i;
+	DLOG("Check the section mapping at first LOAD segment.");
+	for(i=2;i<shdr_num;i++){	//we have already check 2 section. So "i" start at 2.
+		if(shdr_table[i].sh_size == 0){
+			VLOG("Error shdr_size at index %d", i);
+			damageLevel = 2;
+			return false;
+		}
+		if(isShdrValid){
+			Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
+			Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+			// bits align
+			while(curAddr & (shdr_table[i].sh_addralign-1)) { curAddr++; }
+			while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
+			if(curOffset >= phdr_table[loadIndex[0]].p_filesz) { break; }
+
+			if(curAddr != shdr_table[i].sh_addr || curOffset != shdr_table[i].sh_offset){
+				VLOG("Not valid section address or offset at section index %d", i);
+				isShdrValid = false;
+			}
+
+		}
+	}
+	
+	// check the second LOAD segment
+	// if section and offset invalid. All shdr_size would been check in previous loop
+	// This loop will pass
+	if(isShdrValid){
+		// Because we have already check sh_size in previous loop.
+		// We don't need to check again with this section.
+		if(shdr_table[i].sh_addr != phdr_table[loadIndex[1]].p_paddr ||
+		   shdr_table[i].sh_offset != phdr_table[loadIndex[1]].p_offset){
+			VLOG("Not valid section address or offset at section index %d", i);
+			isShdrValid = false;
+		}
+		i++;
+	}
+	if(i < shdr_num) DLOG("Check the section mapping at second LOAD segment.");
+	for(;i<shdr_num;i++){
+		if(shdr_table[i].sh_size == 0 && shdr_table[i].sh_type != SHT_NOBITS){
+			VLOG("Error shdr_size at index %d", i);
+			damageLevel = 2;
+			return false;
+		}
+		if(isShdrValid){
+			Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
+			Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+			//bits align
+			while(curAddr & (shdr_table[i].sh_addralign-1)) { curAddr++; }
+			while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
+			// Beside Load segment, break
+			if(curOffset >= phdr_table[loadIndex[1]].p_filesz + phdr_table[loadIndex[1]].p_offset) { break; }
+
+			if(curAddr != shdr_table[i].sh_addr || curOffset != shdr_table[i].sh_offset){
+				VLOG("Not valid section address or offset at section index %d", i);
+				isShdrValid = false;
+			}
+		}
+	}
+
+	//FIXME: then figure with .comment .shstrtab and others don't load
+	// it's unimportant for these section. Temporary not handle it.
+	if(isShdrValid){
+		VLOG("The section headers are valid.");
+		damageLevel = 0;
+	} else{
+		VLOG("Section headers need a bit repair");
+		damageLevel = 1;
+	}
+	DLOG("Finish section check. Not fully damage.");
+	return isShdrValid;
 }
 
 bool ELFReader::loadFileData(void *addr, size_t len, int offset){

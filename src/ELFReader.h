@@ -20,6 +20,7 @@ private:
 	bool readSectionHeader();
 	bool readOtherPart();
 
+	bool checkSectionHeader();
 	bool loadFileData(void *addr, size_t len, int offset);
 
 	const char* filename;

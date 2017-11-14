@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <string>
 #include "Log.h"
+#include "ELFReader.h"
 
 void usage(){
 	std::cout<<"So Rebuilder  --Powered by giglf\n"
@@ -25,7 +26,7 @@ struct GlobalArgument{
 	bool check;					// -c option
 	bool verbose;				// -v option
 	bool debug;					// -d option
-	bool isVaild;				// is the argv vaild
+	bool isValid;				// is the argv Valid
 }GlobalArgv;
 
 static const char *optString = "o:cvhd";
@@ -47,14 +48,13 @@ int main(int argc, char *argv[]){
 	GlobalArgv.check = false;
 	GlobalArgv.verbose = false;
 	GlobalArgv.debug = false;
-	GlobalArgv.isVaild = true;
+	GlobalArgv.isValid = true;
 
 	int opt;
 	int longIndex;
 	// I have try that getopt doesn't work with multiple option.
 	// So it must using getopt_long instead.
 	while((opt = getopt_long(argc, argv, optString, longOpts, &longIndex)) != -1){
-		LOG("%d %c", opt, opt);
 		switch(opt){
 			case 'o':
 				GlobalArgv.outFileName = optarg;
@@ -72,13 +72,13 @@ int main(int argc, char *argv[]){
 				GlobalArgv.debug = true;
 				break;
 			default:	
-				GlobalArgv.isVaild = false;
+				GlobalArgv.isValid = false;
 				break;
 		}
 	}
 	GlobalArgv.inFileName = argv[optind];	
 
-	if(!GlobalArgv.isVaild) { usage(); return 1; }
+	if(!GlobalArgv.isValid) { usage(); return 1; }
 	if(GlobalArgv.debug) { DEBUG = true; LOG("=====Debug modol=====");}
 	if(GlobalArgv.verbose) { VERBOSE = true; DLOG("verbose set"); }
 	if(GlobalArgv.outFileName.empty()){
@@ -88,10 +88,11 @@ int main(int argc, char *argv[]){
 	DLOG("OutputFile: %s", GlobalArgv.outFileName.c_str());
 
 
-	//TODO: ELFReader reader(GlobalArgv.inFileName);
-	
+	ELFReader reader(GlobalArgv.inFileName.c_str());
+	reader.readSofile();
 	if(GlobalArgv.check){
-		//TODO: elfReader.damagePrint();
+		reader.damagePrint();
+		DLOG("Enter check elf file");
 	}
 
 	//TODO: ELFRebuilder rebuilder(reader);
