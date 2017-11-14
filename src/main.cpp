@@ -13,6 +13,7 @@ void usage(){
 			 <<"option: \n"
 			 <<"    -o --output <outputfile>   Specify the output file name. Or append \"_repaired\" default.\n"
 			 <<"    -c --check                 Check the damage level and print it.\n"
+			 <<"    -f --force                 Force to fully rebuild the section.\n"
 			 <<"    -v --verbose               Print the verbose repair information\n"
 			 <<"    -h --help                  Print this usage.\n"
 			 <<"    -d --debug                 Print this program debug log."
@@ -24,6 +25,7 @@ struct GlobalArgument{
 	std::string inFileName;
 	std::string outFileName;	// -o option
 	bool check;					// -c option
+	bool force;
 	bool verbose;				// -v option
 	bool debug;					// -d option
 	bool isValid;				// is the argv Valid
@@ -33,6 +35,7 @@ static const char *optString = "o:cvhd";
 static const struct option longOpts[] = {
 	{"output", required_argument, NULL, 'o'},
 	{"check", no_argument, NULL, 'c'},
+	{"force", no_argument, NULL, 'f'},
 	{"verbose", no_argument, NULL, 'v'},
 	{"help", no_argument, NULL, 'h'},
 	{"debug", no_argument, NULL, 'd'}
@@ -46,6 +49,7 @@ int main(int argc, char *argv[]){
 	}
 	
 	GlobalArgv.check = false;
+	GlobalArgv.force = false;
 	GlobalArgv.verbose = false;
 	GlobalArgv.debug = false;
 	GlobalArgv.isValid = true;
@@ -61,6 +65,9 @@ int main(int argc, char *argv[]){
 				break;
 			case 'c':
 				GlobalArgv.check = true;
+				break;
+			case 'f':
+				GlobalArgv.force = true;
 				break;
 			case 'v':
 				GlobalArgv.verbose = true;
@@ -95,7 +102,17 @@ int main(int argc, char *argv[]){
 		DLOG("Enter check elf file");
 	}
 
-	//TODO: ELFRebuilder rebuilder(reader);
+	/**
+	 * Because judge if a so-file section headers fully damage or 
+	 * just missing address and offset is difficult to me. For example, 
+	 * I don't know why in some file .got section are align 8 but the 
+	 * section record align 4. That lead the wrong result with the check 
+	 * function.
+	 * Because of my limit ability. I recommand you using -f option to 
+	 * force rebuild the section headers.
+	 * Hope you can help me with it.
+	 */
+	//TODO: ELFRebuilder rebuilder(reader, force);
 
 	
 	return 0;
