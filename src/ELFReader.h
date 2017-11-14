@@ -1,6 +1,7 @@
 #ifndef _SO_REBUILDER_ELFREADER_H_
 #define _SO_REBUILDER_ELFREADER_H_
 
+#include <cstdio>
 #include "elf.h"
 
 class ELFReader{
@@ -12,6 +13,20 @@ public:
 	void load();
 	bool readSofile();
 	void damagePrint();
+
+	int getDamageLevel() {return damageLevel; }
+
+	Elf32_Shdr* getShdrTable() { return shdr_table; }
+	void* getMidPart() { return midPart; }
+	Elf32_Phdr* getPhdrTable() { return phdr_table; }
+
+	size_t getPhdrSize() { return phdr_size; }
+	size_t getOtherSize() { return midPart_size; }
+	size_t getShdrSize() { return shdr_size; }
+
+	int getShdrNum() { return shdr_num; }
+	int getPhdrNum() { return phdr_num; }
+
 private:
 
 	bool readElfHeader();
@@ -56,15 +71,18 @@ private:
 
 	Elf32_Phdr* phdr_table; 	// store program header table
 	Elf32_Half phdr_entrySize;	// program header entry size
-	size_t phdr_num;			// the number of program header 
+	size_t phdr_num;			// the number of program header
+	size_t phdr_size;			// size of program headers
 
 	void *midPart;				// the load address of the middle part between program table and section table
 	Elf32_Addr midPart_start;	// start address between program table and section table
-	Elf32_Addr midPart_end;		// end address between program table and section table 
+	Elf32_Addr midPart_end;		// end address between program table and section table
+	size_t midPart_size;		// size of the Middle part. 
 
 	Elf32_Shdr* shdr_table;		// store section header table
 	Elf32_Half shdr_entrySize;	// section header entry size
 	size_t shdr_num;			// the number of section header
+	size_t shdr_size;			// size of section headers
 
 	/* Load information */
 	void* load_start;			// First page of reserved address space.

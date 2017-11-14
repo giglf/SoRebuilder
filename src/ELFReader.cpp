@@ -7,9 +7,9 @@
 
 ELFReader::ELFReader(const char *filename)
 	: filename(filename), inputFile(NULL), damageLevel(-1), isLoad(false),
-	  phdr_table(NULL), phdr_entrySize(0), phdr_num(0),
-	  midPart_start(0), midPart_end(0), 
-	  shdr_table(NULL), shdr_entrySize(0), shdr_num(0),
+	  phdr_table(NULL), phdr_entrySize(0), phdr_num(0), phdr_size(0), 
+	  midPart_start(0), midPart_end(0), midPart_size(0), 
+	  shdr_table(NULL), shdr_entrySize(0), shdr_num(0), shdr_size(0), 
 	  load_start(NULL), load_size(0), load_bias(0){
 
 	inputFile = fopen(filename, "rb");
@@ -20,9 +20,10 @@ ELFReader::ELFReader(const char *filename)
 }
 
 ELFReader::~ELFReader(){
-	if(load_start != NULL){
-		delete [](uint8_t*)load_start;
-	}
+	if(load_start != NULL){	delete [](uint8_t*)load_start; }
+	if(phdr_table != NULL){ delete [](uint8_t*)phdr_table; }
+	if(midPart != NULL){ delete [](uint8_t*)midPart; }
+	if(shdr_table != NULL){ delete [](uint8_t*)shdr_table; }
 }
 
 bool ELFReader::readSofile(){
@@ -126,9 +127,9 @@ bool ELFReader::readProgramHeader(){
 		return false;
 	}
 
-	size_t phdrSize = phdr_num * phdr_entrySize;
-	void *mapPhdr = new uint8_t[phdrSize];
-	if(!loadFileData(mapPhdr, phdrSize, elf_header.e_phoff)){
+	phdr_size = phdr_num * phdr_entrySize;
+	void *mapPhdr = new uint8_t[phdr_size];
+	if(!loadFileData(mapPhdr, phdr_size, elf_header.e_phoff)){
 		ELOG("\"%s\" has not valid program header data.", filename);
 		return false;
 	}
@@ -155,9 +156,9 @@ bool ELFReader::readSectionHeader(){
 		return false;
 	}
 
-	size_t shdrSize = shdr_num * shdr_entrySize;
-	void *mapShdr = new uint8_t[shdrSize];
-	if(!loadFileData(mapShdr, shdrSize, elf_header.e_shoff)){
+	shdr_size = shdr_num * shdr_entrySize;
+	void *mapShdr = new uint8_t[shdr_size];
+	if(!loadFileData(mapShdr, shdr_size, elf_header.e_shoff)){
 		VLOG("\"%s\" don't have valid section data.", filename);
 		return false;
 	}
@@ -176,10 +177,10 @@ bool ELFReader::readSectionHeader(){
 bool ELFReader::readOtherPart(){
 	midPart_start = elf_header.e_phoff + phdr_num*phdr_entrySize;
 	midPart_end = elf_header.e_shoff;
-	size_t midPartSize = midPart_end - midPart_start;
-	void *mapMidPart = new uint8_t[midPartSize];
+	midPart_size = midPart_end - midPart_start;
+	void *mapMidPart = new uint8_t[midPart_size];
 	
-	if(!loadFileData(mapMidPart, midPartSize, midPart_start)){
+	if(!loadFileData(mapMidPart, midPart_size, midPart_start)){
 		ELOG("\"%s\" don't have valid data.", filename);
 		return false;
 	}
@@ -205,43 +206,32 @@ bool ELFReader::checkSectionHeader(){
 	// Get the two load segment index at phdr_table.
 	// Thus wo can use segment load address and offset 
 	// to check the section header.
-	// And get the interp segment so we can get the .interp
-	// section load offset and address.
-	int interpIndex = -1;
 	int loadIndex[2] = {-1, -1};
 	for(int i=0, j=0;i<phdr_num;i++){
 		if(phdr_table[i].p_type == PT_LOAD){
 			loadIndex[j++] = i;
 		}
-		if(phdr_table[i].p_type == PT_INTERP){
-			interpIndex = i;
-		}
 	}
 
 	bool isShdrValid = true;
-	//check .interp section
-	if(interpIndex != -1){	
-		if(shdr_table[1].sh_size != phdr_table[interpIndex].p_memsz){
-			VLOG("Error shdr_size at index 1");
-			damageLevel = 2;
-			return false;
-		}
-
-		if(shdr_table[1].sh_addr != phdr_table[interpIndex].p_vaddr ||
-		shdr_table[1].sh_offset != phdr_table[interpIndex].p_offset){
-			// Because we haven't checked the other section size.
-			// We not sure whether the other section size available.
-			// Thus we cannot return immediately.
-			VLOG("Not valid section address or offset at section index 1.");
-			isShdrValid = false;
-		}
-	} else{
-		if(shdr_table[1].sh_size == 0 || shdr_table[1].sh_addr == 0 || shdr_table == 0){
-			VLOG("Wrong section header at index 1");
-			damageLevel = 2;
-			return false;
-		}
+	size_t firstAddress = sizeof(Elf32_Ehdr) + getPhdrSize();
+	//check .interp section or the 1 section
+	// because some so file can't find .interp section
+	if(shdr_table[1].sh_size == 0){
+		VLOG("Error shdr_size at index 1");
+		damageLevel = 2;
+		return false;
 	}
+
+	if(shdr_table[1].sh_addr != firstAddress ||
+	shdr_table[1].sh_offset != firstAddress){
+		// Because we haven't checked the other section size.
+		// We not sure whether the other section size available.
+		// Thus we cannot return immediately.
+		VLOG("Not valid section address or offset at section index 1.");
+		isShdrValid = false;
+	}
+	
 	// check each section address and offset if size not empty.
 	// Here to check the first LOAD segment.
 	int i;
