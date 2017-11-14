@@ -585,7 +585,311 @@ struct soinfo {
 
 关注一下可以发现，soinfo结构体里包含的只有`segment table`的信息，并不包含section的信息
 
-可以说，其实在Android运行时，对于一个so，只需要用到它的segment信息，由此可以对section部分进行删除，而ida等工具静态分析都是通过section的信息进行分析的，所以由此可以有效地防止so被静态分析逆向。
+---
+
+注意发现，其获取soinfo的信息是通过一个叫`find_containing_library` 的方法，这个是检测so文件是否已经加载到内存中，如果已经加载到内存中，就可以直接return了。
+
+如果尚未加载到内存中，则会通过`find_library` 函数获取soinfo信息
+
+```cpp
+// ./bioni/linker/linker.cpp
+
+static soinfo* find_library(android_namespace_t* ns,
+                            const char* name, int rtld_flags,
+                            const android_dlextinfo* extinfo,
+                            soinfo* needed_by) {
+  soinfo* si;
+  if (name == nullptr) {
+    si = somain;
+  } else if (!find_libraries(ns, needed_by, &name, 1, &si, nullptr, 0, rtld_flags,
+                             extinfo, /* add_as_children */ false)) {
+    return nullptr;
+  }
+  return si;
+}
+
+static bool find_libraries(android_namespace_t* ns,
+                           soinfo* start_with,
+                           const char* const library_names[],
+                           size_t library_names_count, soinfo* soinfos[],
+                           std::vector<soinfo*>* ld_preloads,
+                           size_t ld_preloads_count, int rtld_flags,
+                           const android_dlextinfo* extinfo,
+                           bool add_as_children) {
+  // Step 0: prepare.
+  LoadTaskList load_tasks;
+  std::unordered_map<const soinfo*, ElfReader> readers_map;
+
+  for (size_t i = 0; i < library_names_count; ++i) {
+    const char* name = library_names[i];
+    load_tasks.push_back(LoadTask::create(name, start_with, &readers_map));
+  }
+
+  // Construct global_group.
+  soinfo::soinfo_list_t global_group = make_global_group(ns);
+
+  // If soinfos array is null allocate one on stack.
+  // The array is needed in case of failure; for example
+  // when library_names[] = {libone.so, libtwo.so} and libone.so
+  // is loaded correctly but libtwo.so failed for some reason.
+  // In this case libone.so should be unloaded on return.
+  // See also implementation of failure_guard below.
+
+  if (soinfos == nullptr) {
+    size_t soinfos_size = sizeof(soinfo*)*library_names_count;
+    soinfos = reinterpret_cast<soinfo**>(alloca(soinfos_size));
+    memset(soinfos, 0, soinfos_size);
+  }
+
+  // list of libraries to link - see step 2.
+  size_t soinfos_count = 0;
+
+  auto scope_guard = make_scope_guard([&]() {
+    for (LoadTask* t : load_tasks) {
+      LoadTask::deleter(t);
+    }
+  });
+
+  auto failure_guard = make_scope_guard([&]() {
+    // Housekeeping
+    soinfo_unload(soinfos, soinfos_count);
+  });
+
+  ZipArchiveCache zip_archive_cache;
+
+  // Step 1: expand the list of load_tasks to include
+  // all DT_NEEDED libraries (do not load them just yet)
+  for (size_t i = 0; i<load_tasks.size(); ++i) {
+    LoadTask* task = load_tasks[i];
+    soinfo* needed_by = task->get_needed_by();
+
+    bool is_dt_needed = needed_by != nullptr && (needed_by != start_with || add_as_children);
+    task->set_extinfo(is_dt_needed ? nullptr : extinfo);
+    task->set_dt_needed(is_dt_needed);
+
+    if(!find_library_internal(ns, task, &zip_archive_cache, &load_tasks, rtld_flags)) {
+      return false;
+    }
+
+    soinfo* si = task->get_soinfo();
+
+    if (is_dt_needed) {
+      needed_by->add_child(si);
+    }
+
+    if (si->is_linked()) {
+      si->increment_ref_count();
+    }
+
+    // When ld_preloads is not null, the first
+    // ld_preloads_count libs are in fact ld_preloads.
+    if (ld_preloads != nullptr && soinfos_count < ld_preloads_count) {
+      ld_preloads->push_back(si);
+    }
+
+    if (soinfos_count < library_names_count) {
+      soinfos[soinfos_count++] = si;
+    }
+  }
+
+  // Step 2: Load libraries in random order (see b/24047022)
+  LoadTaskList load_list;
+  for (auto&& task : load_tasks) {
+    soinfo* si = task->get_soinfo();
+    auto pred = [&](const LoadTask* t) {
+      return t->get_soinfo() == si;
+    };
+
+    if (!si->is_linked() &&
+        std::find_if(load_list.begin(), load_list.end(), pred) == load_list.end() ) {
+      load_list.push_back(task);
+    }
+  }
+  shuffle(&load_list);
+
+  for (auto&& task : load_list) {
+    if (!task->load()) {
+      return false;
+    }
+  }
+
+  // Step 3: pre-link all DT_NEEDED libraries in breadth first order.
+  for (auto&& task : load_tasks) {
+    soinfo* si = task->get_soinfo();
+    if (!si->is_linked() && !si->prelink_image()) {
+      return false;
+    }
+  }
+
+  // Step 4: Add LD_PRELOADed libraries to the global group for
+  // future runs. There is no need to explicitly add them to
+  // the global group for this run because they are going to
+  // appear in the local group in the correct order.
+  if (ld_preloads != nullptr) {
+    for (auto&& si : *ld_preloads) {
+      si->set_dt_flags_1(si->get_dt_flags_1() | DF_1_GLOBAL);
+    }
+  }
+
+
+  // Step 5: link libraries.
+  soinfo::soinfo_list_t local_group;
+  walk_dependencies_tree(
+      (start_with != nullptr && add_as_children) ? &start_with : soinfos,
+      (start_with != nullptr && add_as_children) ? 1 : soinfos_count,
+      [&] (soinfo* si) {
+    local_group.push_back(si);
+    return true;
+  });
+
+  // We need to increment ref_count in case
+  // the root of the local group was not linked.
+  bool was_local_group_root_linked = local_group.front()->is_linked();
+
+  bool linked = local_group.visit([&](soinfo* si) {
+    if (!si->is_linked()) {
+      if (!si->link_image(global_group, local_group, extinfo)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (linked) {
+    local_group.for_each([](soinfo* si) {
+      if (!si->is_linked()) {
+        si->set_linked();
+      }
+    });
+
+    failure_guard.disable();
+  }
+
+  if (!was_local_group_root_linked) {
+    local_group.front()->increment_ref_count();
+  }
+
+  return linked;
+}
+
+```
+
+注意到，27行有一个`ELFReader` ，找到他的定义处
+
+```cpp
+// ./bionic/linker/linker_phdr.h
+
+class ElfReader {
+ public:
+  ElfReader();
+
+  bool Read(const char* name, int fd, off64_t file_offset, off64_t file_size);
+  bool Load(const android_dlextinfo* extinfo);
+
+  const char* name() const { return name_.c_str(); }
+  size_t phdr_count() const { return phdr_num_; }
+  ElfW(Addr) load_start() const { return reinterpret_cast<ElfW(Addr)>(load_start_); }
+  size_t load_size() const { return load_size_; }
+  ElfW(Addr) load_bias() const { return load_bias_; }
+  const ElfW(Phdr)* loaded_phdr() const { return loaded_phdr_; }
+  const ElfW(Dyn)* dynamic() const { return dynamic_; }
+  const char* get_string(ElfW(Word) index) const;
+  bool is_mapped_by_caller() const { return mapped_by_caller_; }
+
+ private:
+  bool ReadElfHeader();
+  bool VerifyElfHeader();
+  bool ReadProgramHeaders();
+  bool ReadSectionHeaders();
+  bool ReadDynamicSection();
+  bool ReserveAddressSpace(const android_dlextinfo* extinfo);
+  bool LoadSegments();
+  bool FindPhdr();
+  bool CheckPhdr(ElfW(Addr));
+  bool CheckFileRange(ElfW(Addr) offset, size_t size, size_t alignment);
+
+  bool did_read_;
+  bool did_load_;
+  std::string name_;
+  int fd_;
+  off64_t file_offset_;
+  off64_t file_size_;
+
+  ElfW(Ehdr) header_;
+  size_t phdr_num_;
+
+  MappedFileFragment phdr_fragment_;
+  const ElfW(Phdr)* phdr_table_;
+
+  MappedFileFragment shdr_fragment_;
+  const ElfW(Shdr)* shdr_table_;
+  size_t shdr_num_;
+
+  MappedFileFragment dynamic_fragment_;
+  const ElfW(Dyn)* dynamic_;
+
+  MappedFileFragment strtab_fragment_;
+  const char* strtab_;
+  size_t strtab_size_;
+
+  // First page of reserved address space.
+  void* load_start_;
+  // Size in bytes of reserved address space.
+  size_t load_size_;
+  // Load bias.
+  ElfW(Addr) load_bias_;
+
+  // Loaded phdr.
+  const ElfW(Phdr)* loaded_phdr_;
+
+  // Is map owned by the caller
+  bool mapped_by_caller_;
+};
+```
+
+从其private的方法就能看出，有一系列读取ELF信息的操作。
+
+这里要说明一下，这里显然有`ReadSectionHeaders()` 和 `ReadDynamicSection()` 两个函数，这在4.x的安卓源码中是没有的，别的没看过，并不清楚。
+
+在ELFReader中也对应多了一个`Read`的函数，这是用来读取一个ELF的信息，但是真正运行的时候只需要其加载到内存中，也即是`Load` 函数。而`Load`函数中则只需要segment的信息
+
+```cpp
+bool ElfReader::Read(const char* name, int fd, off64_t file_offset, off64_t file_size) {
+  CHECK(!did_read_);
+  CHECK(!did_load_);
+  name_ = name;
+  fd_ = fd;
+  file_offset_ = file_offset;
+  file_size_ = file_size;
+
+  if (ReadElfHeader() &&
+      VerifyElfHeader() &&
+      ReadProgramHeaders() &&
+      ReadSectionHeaders() &&
+      ReadDynamicSection()) {
+    did_read_ = true;
+  }
+
+  return did_read_;
+}
+
+bool ElfReader::Load(const android_dlextinfo* extinfo) {
+  CHECK(did_read_);
+  CHECK(!did_load_);
+  if (ReserveAddressSpace(extinfo) &&
+      LoadSegments() &&
+      FindPhdr()) {
+    did_load_ = true;
+  }
+
+  return did_load_;
+}
+```
+
+
+
+总的来说，在Android运行时，对于一个so，只需要用到它的segment信息，由此可以对section部分进行删除，而ida等工具静态分析都是通过section的信息进行分析的，所以由此可以有效地防止so被静态分析逆向。
 
 ---
 
@@ -642,4 +946,7 @@ Android对so的加载
 4. `android::OpenNativeLibrary` 执行完后，会调用so中`JNI_Onload`函数，从而完成native函数的注册
 
 
+---
+
+###### Android 7.1.1的代码相比4.x的源码复杂了好多……
 
