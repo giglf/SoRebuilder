@@ -178,9 +178,9 @@ bool ELFReader::readOtherPart(){
 	midPart_start = elf_header.e_phoff + phdr_num*phdr_entrySize;
 	midPart_end = elf_header.e_shoff;
 	midPart_size = midPart_end - midPart_start;
-	void *mapMidPart = new uint8_t[midPart_size];
+	midPart = new uint8_t[midPart_size];
 	
-	if(!loadFileData(mapMidPart, midPart_size, midPart_start)){
+	if(!loadFileData(midPart, midPart_size, midPart_start)){
 		ELOG("\"%s\" don't have valid data.", filename);
 		return false;
 	}
@@ -282,6 +282,7 @@ bool ELFReader::checkSectionHeader(){
 			Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
 			Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
 			//bits align
+			//FIXME: It looks like .got section align 8. But record 4 in it section header. No idea.
 			while(curAddr & (shdr_table[i].sh_addralign-1)) { curAddr++; }
 			while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
 			// Beside Load segment, break

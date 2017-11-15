@@ -11,17 +11,19 @@ public:
 	~ELFReader();
 
 	void load();
+	bool isLoaded() { return isLoad; }
 	bool readSofile();
 	void damagePrint();
 
 	int getDamageLevel() {return damageLevel; }
 
+	Elf32_Ehdr getElfHeader() { return elf_header; }
 	Elf32_Shdr* getShdrTable() { return shdr_table; }
 	void* getMidPart() { return midPart; }
 	Elf32_Phdr* getPhdrTable() { return phdr_table; }
 
 	size_t getPhdrSize() { return phdr_size; }
-	size_t getOtherSize() { return midPart_size; }
+	size_t getMidPartSize() { return midPart_size; }
 	size_t getShdrSize() { return shdr_size; }
 
 	int getShdrNum() { return shdr_num; }
