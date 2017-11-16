@@ -521,3 +521,85 @@ size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
     }
     return max_vaddr - min_vaddr;
 }
+
+/* Return the address and size of the ELF file's .dynamic section in memory,
+ * or NULL if missing.
+ *
+ * Input:
+ *   phdr_table  -> program header table
+ *   phdr_count  -> number of entries in tables
+ *   load_bias   -> load bias
+ * Output:
+ *   dynamic       -> address of table in memory (NULL on failure).
+ *   dynamic_count -> number of items in table (0 on failure).
+ *   dynamic_flags -> protection flags for section (unset on failure)
+ * Return:
+ *   void
+ */
+void
+phdr_table_get_dynamic_section(const Elf32_Phdr* phdr_table,
+                               int               phdr_count,
+                               Elf32_Addr        load_bias,
+                               Elf32_Dyn**       dynamic,
+                               size_t*           dynamic_count,
+                               Elf32_Word*       dynamic_flags)
+{
+    const Elf32_Phdr* phdr = phdr_table;
+    const Elf32_Phdr* phdr_limit = phdr + phdr_count;
+
+    for (phdr = phdr_table; phdr < phdr_limit; phdr++) {
+        if (phdr->p_type != PT_DYNAMIC) {
+            continue;
+        }
+
+        *dynamic = reinterpret_cast<Elf32_Dyn*>(load_bias + phdr->p_vaddr);
+        if (dynamic_count) {
+            *dynamic_count = (unsigned)(phdr->p_memsz / sizeof(Elf32_Dyn));
+        }
+        if (dynamic_flags) {
+            *dynamic_flags = phdr->p_flags;
+        }
+        return;
+    }
+    *dynamic = NULL;
+    if (dynamic_count) {
+        *dynamic_count = 0;
+    }
+}
+
+
+/* Return the address and size of the .ARM.exidx section in memory,
+ * if present.
+ *
+ * Input:
+ *   phdr_table  -> program header table
+ *   phdr_count  -> number of entries in tables
+ *   load_bias   -> load bias
+ * Output:
+ *   arm_exidx       -> address of table in memory (NULL on failure).
+ *   arm_exidx_count -> number of items in table (0 on failure).
+ * Return:
+ *   0 on error, -1 on failure (_no_ error code in errno)
+ */
+int
+phdr_table_get_arm_exidx(const Elf32_Phdr* phdr_table,
+                         int               phdr_count,
+                         Elf32_Addr        load_bias,
+                         Elf32_Addr**      arm_exidx,
+                         unsigned*         arm_exidx_count)
+{
+    const Elf32_Phdr* phdr = phdr_table;
+    const Elf32_Phdr* phdr_limit = phdr + phdr_count;
+
+    for (phdr = phdr_table; phdr < phdr_limit; phdr++) {
+        if (phdr->p_type != PT_ARM_EXIDX)
+            continue;
+
+        *arm_exidx = (Elf32_Addr*)(load_bias + phdr->p_vaddr);
+        *arm_exidx_count = (unsigned)(phdr->p_memsz / sizeof(Elf32_Addr));
+        return 0;
+    }
+    *arm_exidx = NULL;
+    *arm_exidx_count = 0;
+    return -1;
+}

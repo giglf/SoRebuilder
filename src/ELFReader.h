@@ -99,13 +99,29 @@ public:
 	int getShdrNum() { return shdr_num; }
 	int getPhdrNum() { return phdr_num; }
 
+	const Elf32_Phdr* getLoadedPhdr() { return loaded_phdr; }
+	Elf32_Addr getLoadBias() { return load_bias; }
 
 };
 
 
+//The functions below are refer to android source
 size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
-                                size_t phdr_count,
-                                Elf32_Addr* out_min_vaddr = NULL,
-                                Elf32_Addr* out_max_vaddr = NULL);
+								size_t phdr_count,
+								Elf32_Addr* out_min_vaddr = NULL,
+								Elf32_Addr* out_max_vaddr = NULL);
+
+void phdr_table_get_dynamic_section(const Elf32_Phdr* phdr_table,
+							   		int               phdr_count,
+							  		Elf32_Addr        load_bias,
+							   		Elf32_Dyn**       dynamic,
+							   		size_t*           dynamic_count,
+							   		Elf32_Word*       dynamic_flags);
+
+int phdr_table_get_arm_exidx(const Elf32_Phdr* phdr_table,
+							 int               phdr_count,
+						 	 Elf32_Addr        load_bias,
+						 	 Elf32_Addr**      arm_exidx,
+						 	 unsigned*         arm_exidix_count);
 
 #endif
