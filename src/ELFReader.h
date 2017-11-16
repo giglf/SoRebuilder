@@ -10,24 +10,9 @@ public:
 	ELFReader(const char * filename);
 	~ELFReader();
 
-	void load();
-	bool isLoaded() { return isLoad; }
-	bool readSofile();
+	bool load();
+	bool read();
 	void damagePrint();
-
-	int getDamageLevel() {return damageLevel; }
-
-	Elf32_Ehdr getElfHeader() { return elf_header; }
-	Elf32_Shdr* getShdrTable() { return shdr_table; }
-	void* getMidPart() { return midPart; }
-	Elf32_Phdr* getPhdrTable() { return phdr_table; }
-
-	size_t getPhdrSize() { return phdr_size; }
-	size_t getMidPartSize() { return midPart_size; }
-	size_t getShdrSize() { return shdr_size; }
-
-	int getShdrNum() { return shdr_num; }
-	int getPhdrNum() { return phdr_num; }
 
 private:
 
@@ -36,6 +21,10 @@ private:
 	bool readProgramHeader();
 	bool readSectionHeader();
 	bool readOtherPart();
+	bool reserveAddressSpace();
+	bool loadSegments();
+	bool findPhdr();
+	bool checkPhdr(Elf32_Addr loaded);
 
 	bool checkSectionHeader();
 	bool loadFileData(void *addr, size_t len, int offset);
@@ -43,7 +32,8 @@ private:
 	const char* filename;
 	FILE* inputFile;
 
-	bool isLoad;
+	bool didLoad;
+	bool didRead;
 	/** 
 	 * This is a parameter define by myself, which target at 
 	 * evaluate the damage level of the .so file.
@@ -91,6 +81,31 @@ private:
 	Elf32_Addr load_size;		// Size in bytes of reserved address space.
 	Elf32_Addr load_bias;		// Load bias.
 
+	const Elf32_Phdr* loaded_phdr;	// Loaded phdr.
+
+public:
+
+	int getDamageLevel() {return damageLevel; }
+
+	Elf32_Ehdr getElfHeader() { return elf_header; }
+	Elf32_Shdr* getShdrTable() { return shdr_table; }
+	void* getMidPart() { return midPart; }
+	Elf32_Phdr* getPhdrTable() { return phdr_table; }
+
+	size_t getPhdrSize() { return phdr_size; }
+	size_t getMidPartSize() { return midPart_size; }
+	size_t getShdrSize() { return shdr_size; }
+
+	int getShdrNum() { return shdr_num; }
+	int getPhdrNum() { return phdr_num; }
+
+
 };
+
+
+size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
+                                size_t phdr_count,
+                                Elf32_Addr* out_min_vaddr = NULL,
+                                Elf32_Addr* out_max_vaddr = NULL);
 
 #endif

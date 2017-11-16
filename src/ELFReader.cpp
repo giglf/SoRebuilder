@@ -4,9 +4,10 @@
 #include <cstring>
 #include "ELFReader.h"
 #include "Log.h"
+#include "exutil.h"
 
 ELFReader::ELFReader(const char *filename)
-	: filename(filename), inputFile(NULL), damageLevel(-1), isLoad(false),
+	: filename(filename), inputFile(NULL), damageLevel(-1), didLoad(false), didRead(false), 
 	  phdr_table(NULL), phdr_entrySize(0), phdr_num(0), phdr_size(0), 
 	  midPart_start(0), midPart_end(0), midPart_size(0), 
 	  shdr_table(NULL), shdr_entrySize(0), shdr_num(0), shdr_size(0), 
@@ -26,7 +27,7 @@ ELFReader::~ELFReader(){
 	if(shdr_table != NULL){ delete [](uint8_t*)shdr_table; }
 }
 
-bool ELFReader::readSofile(){
+bool ELFReader::read(){
 	if(!(readElfHeader()&&verifyElfHeader()&&readProgramHeader())){
 		ELOG("so-file invalid.");
 		exit(EXIT_FAILURE);
@@ -36,7 +37,6 @@ bool ELFReader::readSofile(){
 	if(readSectionHeader()){
 		// damagelevel should set inside checkSectionHeader()
 		checkSectionHeader();
-	
 		if(!readOtherPart()){
 			ELOG("Read other part data failed.");
 			exit(EXIT_FAILURE);
@@ -44,7 +44,152 @@ bool ELFReader::readSofile(){
 	} else{
 		damageLevel = 2;
 	}
+	didRead = true;
 	return true;
+}
+
+/**
+ * load function should be called after readSofile()
+ */ 
+bool ELFReader::load(){
+	if(!didRead){
+		read();
+	}
+	if(reserveAddressSpace() && loadSegments() && findPhdr()){
+		didLoad = true;
+	}
+	return didLoad;
+}
+
+// Reserve a virtual address range big enough to hold all loadable
+// segments of a program header table. This is done by creating a
+// private anonymous mmap() with PROT_NONE.
+bool ELFReader::reserveAddressSpace(){
+	Elf32_Addr min_vaddr;
+	load_size = phdr_table_get_load_size(phdr_table, phdr_num, &min_vaddr);
+    if (load_size == 0) {
+        ELOG("\"%s\" has no loadable segments\n", filename);
+        return false;
+    }
+
+    uint8_t* addr = reinterpret_cast<uint8_t*>(min_vaddr);
+    // alloc map data, and load in addr
+    void* start = new uint8_t[load_size];
+
+    load_start = start;
+    load_bias = reinterpret_cast<uint8_t*>(start) - addr;
+    return true;
+}
+
+/**
+ * Map all loadable segments in process' address space.
+ * This assume you already called reserveAddressSpace.
+ */ 
+bool ELFReader::loadSegments(){
+	for(int i=0;i<phdr_num;i++){
+		const Elf32_Phdr *phdr = &phdr_table[i];
+		if(phdr->p_type != PT_LOAD){
+			continue;
+		}
+
+		// Segment addresses in memory
+		Elf32_Addr seg_start = phdr->p_vaddr;
+		Elf32_Addr seg_end = seg_start + phdr->p_memsz;
+
+		Elf32_Addr seg_page_start = PAGE_START(seg_start);
+		Elf32_Addr seg_page_end = PAGE_END(seg_end);
+
+		Elf32_Addr seg_file_end = seg_start + phdr->p_filesz;
+
+		// File offsets.
+		Elf32_Addr file_start = phdr->p_offset;
+		Elf32_Addr file_end = file_start + phdr->p_filesz;
+
+		Elf32_Addr file_page_start = PAGE_START(file_start);
+		Elf32_Addr file_length = file_end - file_page_start;
+
+		if(file_length != 0){
+			// memory data loading
+			void* load_point = (uint8_t*)seg_page_start + load_bias;
+			if(!loadFileData(load_point, file_length, file_page_start)){
+				ELOG("couldn't map \"%s\" segment %d", filename, i);
+				return false;
+			}
+		}
+
+		// if the segment is writable, and does not end on a page boundary,
+		// zero-fill it until the page limit.
+		if((phdr->p_flags & PF_W) != 0 && PAGE_OFFSET(seg_file_end) > 0){
+			memset((uint8_t*)seg_file_end + load_bias, 0, PAGE_SIZE - PAGE_OFFSET(seg_file_end));
+		}
+		seg_file_end = PAGE_END(seg_file_end);
+
+		// seg_file_end is now the first page address after the file
+		// content. If seg_end is larger, we need to zero anything 
+		// between them. This is done by using a private anonymous 
+		// map for all extra pages.
+		if(seg_page_end > seg_file_end){
+			void* load_point = (uint8_t*)load_bias + seg_file_end;
+			memset(load_point, 0, seg_page_end - seg_file_end);
+		}
+	}
+	return true;
+}
+
+/** 
+ * Returns the address of the program header table as it appears in the loaded
+ * segments in memory. This is in contrast with 'phdr_table_' which
+ * is temporary and will be released before the library is relocated.
+ */
+bool ELFReader::findPhdr() {
+    const Elf32_Phdr *phdr_limit = phdr_table + phdr_num;
+
+	// If there is a PT_PHDR, use it directly
+	for(const Elf32_Phdr* phdr = phdr_table;phdr < phdr_limit;phdr++){
+		if(phdr->p_type == PT_PHDR){
+			return checkPhdr(load_bias + phdr->p_vaddr);
+		}
+	}
+
+	// Otherwise, check the first loadable segment. If its file offset 
+	// is 0, it starts with the ELF header, and we can trivially find the
+	// loaded program header from it.
+	for(const Elf32_Phdr* phdr = phdr_table; phdr < phdr_limit; phdr++){
+		if(phdr->p_type == PT_LOAD){
+			if(phdr->p_offset == 0){
+				Elf32_Addr elf_addr = load_bias + phdr->p_vaddr;
+				const Elf32_Ehdr* ehdr = (const Elf32_Ehdr*)(void *)elf_addr;
+				Elf32_Addr offset = ehdr->e_phoff;
+				return checkPhdr((Elf32_Addr)ehdr + offset);
+			}
+			break;
+		}
+	}
+    ELOG("can't find loaded phdr for \"%s\"", filename);
+    return false;
+}
+
+/**
+ * Ensures that out program header is actually within a loadable
+ * segment. This should help catch badly-formed ELF files that 
+ * would cause the linker to crash later when trying to access it.
+ */
+bool ELFReader::checkPhdr(Elf32_Addr loaded){
+	const Elf32_Phdr* phdr_limit = phdr_table + phdr_num;
+	Elf32_Addr loaded_end = loaded + (phdr_num * sizeof(Elf32_Phdr));
+	for(Elf32_Phdr* phdr = phdr_table; phdr < phdr_limit; phdr++){
+		if(phdr->p_type != PT_LOAD){
+			continue;
+		}
+		Elf32_Addr seg_start = phdr->p_vaddr + load_bias;
+		Elf32_Addr seg_end = seg_start + phdr->p_filesz;
+		if(seg_start <= loaded && loaded_end <= seg_end){
+			loaded_phdr = reinterpret_cast<const Elf32_Phdr*>(loaded);
+			return true;
+		}
+	}
+	ELOG("\"%s\" loaded phdr %x not in loadable segment", filename, loaded);
+	return false;
 }
 
 void ELFReader::damagePrint(){
@@ -134,7 +279,7 @@ bool ELFReader::readProgramHeader(){
 		return false;
 	}
 	phdr_table = reinterpret_cast<Elf32_Phdr*>(mapPhdr);
-	
+
 	DLOG("Read program header success.");
 	return true;
 }
@@ -323,4 +468,56 @@ bool ELFReader::loadFileData(void *addr, size_t len, int offset){
 	}
 	return true;
 
+}
+
+
+/* Returns the size of the extent of all the possibly non-contiguous
+ * loadable segments in an ELF program header table. This corresponds
+ * to the page-aligned size in bytes that needs to be reserved in the
+ * process' address space. If there are no loadable segments, 0 is
+ * returned.
+ *
+ * If out_min_vaddr or out_max_vaddr are non-NULL, they will be
+ * set to the minimum and maximum addresses of pages to be reserved,
+ * or 0 if there is nothing to load.
+ */
+size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
+                                size_t phdr_count,
+                                Elf32_Addr* out_min_vaddr,
+                                Elf32_Addr* out_max_vaddr)
+{
+    Elf32_Addr min_vaddr = 0xFFFFFFFFU;
+    Elf32_Addr max_vaddr = 0x00000000U;
+
+    bool found_pt_load = false;
+    for (size_t i = 0; i < phdr_count; ++i) {
+        const Elf32_Phdr* phdr = &phdr_table[i];
+
+        if (phdr->p_type != PT_LOAD) {
+            continue;
+        }
+        found_pt_load = true;
+
+        if (phdr->p_vaddr < min_vaddr) {
+            min_vaddr = phdr->p_vaddr;
+        }
+
+        if (phdr->p_vaddr + phdr->p_memsz > max_vaddr) {
+            max_vaddr = phdr->p_vaddr + phdr->p_memsz;
+        }
+    }
+    if (!found_pt_load) {
+        min_vaddr = 0x00000000U;
+    }
+
+    min_vaddr = PAGE_START(min_vaddr);
+    max_vaddr = PAGE_END(max_vaddr);
+
+    if (out_min_vaddr != NULL) {
+        *out_min_vaddr = min_vaddr;
+    }
+    if (out_max_vaddr != NULL) {
+        *out_max_vaddr = max_vaddr;
+    }
+    return max_vaddr - min_vaddr;
 }
