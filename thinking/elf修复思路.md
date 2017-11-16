@@ -149,3 +149,32 @@ author: giglf
 4. section面目全非，直接通过上面思路进行section header的重建
 
 上述情况中，2的情况可能性不大，为此着重考虑3、4两种修复方式
+
+
+
+# 修复方案
+
+针对上述情况，修复方案分成Plan A 和Plan B
+
+### Plan A
+
+在经过校验`ELf Header ` 和`Program header` 完整，而`Section Header` 仅仅丢失addresse和offset的情况下选择
+
+抽出shdr_table部分，根据`Program header` LOAD的部分和每个section的size修复相应的address和offset
+
+最后结合输出到文件
+
+### Plan B
+
+B方案比较复杂，首先讨论一个问题，什么情况下会出现section缺失的情况
+
+1. so文件经过人为的混淆，防止被逆向静态分析
+2. 该so文件是在调试的时候从内存dump出来的。elf的执行视图不包含section字段
+
+因为so文件是从内存中dump出来的，自然包含有偏移
+
+总结出一种统一的修复方式，先模拟加载so到内存，然后记录下相应的soinfo，就像Android源码中的LOAD操作一样（详情参考《AndroidSO加载过程》），然后从soinfo中获取so的信息，rebuild section header，最后整合到rebuild的文件中。
+
+
+
+读取，加载的大部分代码可以直接从Android源码中修改过来
