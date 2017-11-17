@@ -73,6 +73,11 @@ public:
 
 	bool has_text_relocations = false;
 	bool has_DT_SYMBOLIC = false;
+
+	//Add by myself
+	size_t dynsym_size = 0;
+	Elf32_Addr* interp = nullptr;
+	size_t interp_size = 0;
 };
 
 class ELFRebuilder{
@@ -107,8 +112,9 @@ private:
 	bool rebuildShdr();
 	bool rebuildRelocs();
 	bool rebuildFinish();
-
+	
 	soinfo si;
+	Elf32_Word sINTERP = 0;
 	Elf32_Word sDYNSYM = 0;
 	Elf32_Word sDYNSTR = 0;
 	Elf32_Word sHASH = 0;
@@ -128,6 +134,7 @@ private:
 	std::vector<Elf32_Shdr> shdrs;
 	std::string shstrtab;
 };
+
 
 
 #endif

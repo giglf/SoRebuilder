@@ -603,3 +603,25 @@ phdr_table_get_arm_exidx(const Elf32_Phdr* phdr_table,
     *arm_exidx_count = 0;
     return -1;
 }
+
+
+// get the interp section address
+void phdr_table_get_interpt_section(const Elf32_Phdr* phdr_table, 
+									int 			  phdr_count,
+									Elf32_Addr		  load_bias, 
+									Elf32_Addr**	  interp,
+									size_t*			  interp_size)
+{
+	const Elf32_Phdr* phdr = phdr_table;
+	const Elf32_Phdr* phdr_limit = phdr + phdr_count;
+
+	for(phdr = phdr_table; phdr < phdr_limit; phdr++){
+		if(phdr->p_type != PT_INTERP)
+			continue;
+
+		*interp = (Elf32_Addr*)(load_bias + phdr->p_vaddr);
+		*interp_size = phdr->p_filesz;
+		return;
+	}
+	*interp = NULL;
+}

@@ -165,7 +165,9 @@ bool ELFRebuilder::readSoInfo(){
 	phdr_table_get_load_size(si.phdr, si.phnum, &si.min_load, &si.max_load);
 
 	// get .dynamic table
-	phdr_table_get_dynamic_section(si.phdr, si.phnum, si.base, &si.dynamic, &si.dynamic_count, &si.dynamic_flags);
+	phdr_table_get_dynamic_section(si.phdr, si.phnum, si.load_bias, &si.dynamic, &si.dynamic_count, &si.dynamic_flags);
+
+	phdr_table_get_interpt_section(si.phdr, si.phnum, si.load_bias, &si.interp, &si.interp_size);
 
 	if(si.dynamic == NULL){
 		ELOG("dynamic section unavailable. Cannot rebuild.");
@@ -189,7 +191,7 @@ bool ELFRebuilder::readSoInfo(){
 				si.strtab = (const char*)(dyn->d_un.d_ptr + base);
 				VLOG("string table found at %x", dyn->d_un.d_ptr);
 				break;
-							case DT_SYMTAB:
+			case DT_SYMTAB:
 				si.symtab = (Elf32_Sym *) (dyn->d_un.d_ptr + base);
 				VLOG("symbol table found at %x\n", dyn->d_un.d_ptr);
 				break;
@@ -279,6 +281,8 @@ bool ELFRebuilder::readSoInfo(){
 				si.strtabsize = dyn->d_un.d_val;
 				break;
 			case DT_SYMENT:
+				si.dynsym_size = dyn->d_un.d_val;
+				break;
 			case DT_RELENT:
 				break;
 			case DT_MIPS_RLD_MAP:
@@ -315,7 +319,410 @@ bool ELFRebuilder::readSoInfo(){
 }
 
 bool ELFRebuilder::rebuildShdr(){
-	//TODO:
+	shstrtab.clear();
+	shdrs.clear();
+	Elf32_Addr base = si.load_bias;
+
+	Elf32_Shdr shdr;
+	memset((void*)&shdr, 0, sizeof(shdr));
+	shstrtab.push_back('\0');
+	shdrs.push_back(shdr);
+
+	// generate .interp
+	if(si.interp != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sINTERP = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".interp");
+		shstrtab.push_back('\0');
+		
+		shdr.sh_type = SHT_PROGBITS;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.interp - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.interp_size;
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 1;
+		shdr.sh_entsize = 0;
+		
+		shdrs.push_back(shdr);
+	}
+
+	//generate .dynsym
+	if(si.symtab != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sDYNSYM = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".dynsym");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_DYNSYM;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.symtab - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.dynsym_size;
+		shdr.sh_link = 0; 		// link to dynstr later
+		shdr.sh_info = 1;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 0x10;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .dynstr
+	if(si.strtab != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sDYNSTR = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".dynstr");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_STRTAB;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.strtab - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.strtabsize;
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 1;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .hash
+	if(si.hash != 0){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sHASH = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".hash");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_HASH;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = si.hash - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = (si.nbucket + si.nchain + 2) * sizeof(Elf32_Addr);
+		shdr.sh_link = sDYNSYM;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 4;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .rel.dyn
+	if(si.rel != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sRELDYN = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".rel.dyn");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_REL;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.rel - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.rel_count * sizeof(Elf32_Rel);
+		shdr.sh_link = sDYNSYM;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 8;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .rel.plt
+	if(si.plt_rel != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sRELPLT = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".rel.plt");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_REL;
+		shdr.sh_flags = SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.plt_rel - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.plt_rel_count * sizeof(Elf32_Rel);
+		shdr.sh_link = sDYNSYM;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 8;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .plt with .rel.plt
+	if(si.plt_rel != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sPLT = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".plt");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_PROGBITS;
+		shdr.sh_flags = SHF_ALLOC | SHF_EXECINSTR;
+		shdr.sh_addr = shdrs[sRELPLT].sh_addr + shdrs[sRELPLT].sh_size;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = 20 + 12 * shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel);
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .text&.ARM.extab
+	if(si.plt_rel != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sTEXTTAB = shdrs.size();
+		Elf32_Word sLAST = sTEXTTAB - 1;
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".text&.ARM.extab");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_PROGBITS;
+		shdr.sh_flags = SHF_ALLOC | SHF_EXECINSTR;
+		shdr.sh_addr = shdrs[sLAST].sh_addr + shdrs[sLAST].sh_size;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = 0;		//TODO: calculate later
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 8;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .ARM.exidx
+	if(si.ARM_exidx != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sARMEXIDX = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".ARM.exidx");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_ARM_EXIDX;
+		shdr.sh_flags = SHF_ALLOC | SHF_LINK_ORDER;
+		shdr.sh_addr = (Elf32_Addr)si.ARM_exidx - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.ARM_exidx_count * sizeof(Elf32_Addr);
+		shdr.sh_link = sTEXTTAB;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 8;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .fini_array
+	if(si.fini_array != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sFINIARRAY = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".fini_array");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_FINI_ARRAY;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.fini_array - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.fini_array_count * sizeof(Elf32_Addr);
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .init_array
+	if(si.init_array != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sINITARRAY = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".init_array");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_INIT_ARRAY;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.init_array - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.init_array_count * sizeof(Elf32_Addr);
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 1;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .dynamic
+	if(si.dynamic != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sDYNAMIC = shdrs.size();
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".dynamic");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_DYNAMIC;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = (Elf32_Addr)si.dynamic - base;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.dynamic_count * sizeof(Elf32_Dyn);
+		shdr.sh_link = sDYNSTR;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 8;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .got
+	if(si.plt_got != nullptr){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sGOT = shdrs.size();
+		Elf32_Word sLAST = sGOT - 1;
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".got");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_PROGBITS;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = shdrs[sLAST].sh_addr + shdrs[sLAST].sh_size;
+		// In fact the .got is align 8.
+		while(shdr.sh_addr & 0x7){ shdr.sh_addr++; }
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = (Elf32_Addr)si.plt_got + 4*shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel) + 8 - shdr.sh_addr;
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .data
+	if(true){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sDATA = shdrs.size();
+		Elf32_Word sLAST = sDATA - 1;
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".data");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_PROGBITS;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = shdrs[sLAST].sh_addr + shdrs[sLAST].sh_size;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = si.max_load - shdr.sh_addr;
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 4;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .bss
+	if(true){
+		memset((void*)&shdr, 0, sizeof(shdr));
+		sBSS = shdrs.size();
+		Elf32_Word sLAST = sBSS - 1;
+		shdr.sh_name = shstrtab.length();
+		shstrtab.append(".bss");
+		shstrtab.push_back('\0');
+
+		shdr.sh_type = SHT_NOBITS;
+		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
+		shdr.sh_addr = shdrs[sLAST].sh_addr + shdrs[sLAST].sh_size;
+		shdr.sh_offset = shdr.sh_addr;
+		shdr.sh_size = 0;
+		shdr.sh_link = 0;
+		shdr.sh_info = 0;
+		shdr.sh_addralign = 1;
+		shdr.sh_entsize = 0;
+
+		shdrs.push_back(shdr);
+	}
+
+	//generate .shstrtab
+	memset((void*)&shdr, 0, sizeof(shdr));
+	sSHSTRTAB = shdrs.size();
+	shdr.sh_name = shstrtab.length();
+	shstrtab.append(".shstrtab");
+	shstrtab.push_back('\0');
+
+	shdr.sh_type = SHT_STRTAB;
+	shdr.sh_flags = 0;
+	shdr.sh_addr = 0;
+	shdr.sh_offset = (Elf32_Addr)si.max_load;
+	shdr.sh_size = shstrtab.length();
+	shdr.sh_link = 0;
+	shdr.sh_info = 0;
+	shdr.sh_addralign = 1;
+	shdr.sh_entsize = 0;
+
+	shdrs.push_back(shdr);
+
+	// patch the link section data
+	if(sDYNSYM != 0){
+		shdrs[sDYNSYM].sh_link = sDYNSTR;
+	}
+
+	// sort shdr by address and recalc size
+	for(int i = 1; i < shdrs.size(); i++) {
+		for(int j = i + 1; j < shdrs.size(); j++) {
+			if(shdrs[i].sh_addr > shdrs[j].sh_addr) {
+				// exchange i, j
+				Elf32_Shdr tmp = shdrs[i];
+				shdrs[i] = shdrs[j];
+				shdrs[j] = tmp;
+
+				// exchange index
+				auto chgIdx = [i, j](Elf32_Word &t) {
+					if(t == i) {
+						t = j;
+					} else if(t == j) {
+						t = i;
+					}
+				};
+				chgIdx(sDYNSYM);
+				chgIdx(sDYNSTR);
+				chgIdx(sHASH);
+				chgIdx(sRELDYN);
+				chgIdx(sRELPLT);
+				chgIdx(sPLT);
+				chgIdx(sTEXTTAB);
+				chgIdx(sARMEXIDX);
+				chgIdx(sFINIARRAY);
+				chgIdx(sINITARRAY);
+				chgIdx(sDYNAMIC);
+				chgIdx(sGOT);
+				chgIdx(sDATA);
+				chgIdx(sBSS);
+				chgIdx(sSHSTRTAB);
+			}
+		}
+	}
+
+	if(sTEXTTAB != 0){
+		shdrs[sTEXTTAB].sh_size = shdrs[sTEXTTAB + 1].sh_addr - shdrs[sTEXTTAB].sh_addr;
+	}
+
+	// recalculate the size of each section 
+	for(int i=2;i<shdrs.size();i++){
+		if(shdrs[i].sh_offset - shdrs[i-1].sh_offset < shdrs[i-1].sh_size){
+			shdrs[i-1].sh_size = shdrs[i].sh_offset - shdrs[i-1].sh_offset;
+		}
+	}
+
+	VLOG("All sections rebuilded finish.");
+	return true;
+
 }
 
 bool ELFRebuilder::rebuildRelocs(){
@@ -325,5 +732,4 @@ bool ELFRebuilder::rebuildRelocs(){
 bool ELFRebuilder::rebuildFinish(){
 	//TODO:
 }
-
 
