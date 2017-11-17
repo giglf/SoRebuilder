@@ -114,7 +114,7 @@ author: giglf
 - `.plt` => 起始位置即为`.rel.plt`的末尾，上面处理可知`.plt`的offset和vaddr，plt 由固定16 字节 + 4 字节的`__global__offset_table` 变量和n 个需要重定位的函数地址构成，函数地址又与rel.plt
   中的结构一一对应。故
   $$
-  size = (20 + 12 * (rel.plt.size) / sizeof(Elf32\_Rel)
+  size = 20 + 12 * (rel.plt.size) / sizeof(Elf32\_Rel)
   $$
 
 - `.got` => `.got` 紧接着`.dynamic` ，并且，通过`DT_PLTGOT` 获得`_global_offset_table_`的地址，通过`.rel.plt` 的size算出`.got` 的尾地址，以此计算出`.got` 的size
