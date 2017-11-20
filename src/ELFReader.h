@@ -104,6 +104,14 @@ public:
 	const Elf32_Phdr* getLoadedPhdr() { return loaded_phdr; }
 	Elf32_Addr getLoadBias() { return load_bias; }
 
+	void setDumpSoFile(bool dump) { dump_so_file = dump; }
+	void setDumpSoBase(Elf32_Addr base){ dump_so_base = base; }
+	bool isDumpSoFile() { return dump_so_file; }
+	Elf32_Addr getDumpSoBase() { return dump_so_base; }
+private:
+	bool dump_so_file = false;
+	Elf32_Addr dump_so_base = 0;
+
 };
 
 

@@ -733,8 +733,41 @@ bool ELFRebuilder::rebuildShdr(){
 
 }
 
+
+/**
+ * Only call if the so file was dumped from memory.
+ * We can specify the dump so file using -m option, 
+ * and setting the dump base memory with it.
+ */
 bool ELFRebuilder::rebuildRelocs(){
-	//TODO:
+	if(reader.isDumpSoFile()){
+		auto relocate = [](Elf32_Addr base, Elf32_Rel* rel, size_t count, Elf32_Addr dump_base){
+			if(rel == nullptr || count == 0) return false;
+			for(int i=0;i<count;i++, rel++){
+				Elf32_Word type = rel->getType();
+				Elf32_Word sym = rel->getSymbol();
+
+				Elf32_Addr* prel = reinterpret_cast<Elf32_Addr*>(base + rel->r_offset);
+				if(type == 0) continue; //R_*_NONE
+				switch(type){
+					// Only I know is RELATIVE.
+					// It would add a load address when the got table 
+					// need to be relocated. 
+					// If the so file is dump from memory. The relocate 
+					// must have worked. We should subtract the load address.
+					case R_386_RELATIVE:
+					case R_ARM_RELATIVE:
+						*prel = *prel - dump_base;
+						break;
+					default:
+						break;
+				}
+			}
+		};
+		relocate(si.load_bias, si.plt_rel, si.plt_rel_count, reader.getDumpSoBase());
+		relocate(si.load_bias, si.rel, si.plt_rel_count, reader.getDumpSoBase());
+	}
+	return true;
 }
 
 bool ELFRebuilder::rebuildFinish(){

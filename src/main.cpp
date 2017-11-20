@@ -15,6 +15,7 @@ void usage(){
 			 <<"    -o --output <outputfile>   Specify the output file name. Or append \"_repaired\" default.\n"
 			 <<"    -c --check                 Check the damage level and print it.\n"
 			 <<"    -f --force                 Force to fully rebuild the section.\n"
+			 <<"    -m --memso <baseAddr(hex)> Source file is dump from memory from address x(hex)\n"
 			 <<"    -v --verbose               Print the verbose repair information\n"
 			 <<"    -h --help                  Print this usage.\n"
 			 <<"    -d --debug                 Print this program debug log."
@@ -26,24 +27,27 @@ struct GlobalArgument{
 	std::string inFileName;
 	std::string outFileName;	// -o option
 	bool check;					// -c option
-	bool force;
+	bool force;					// -f option
+	bool isMset;				// -m option
+	unsigned int memso;			
 	bool verbose;				// -v option
 	bool debug;					// -d option
 	bool isValid;				// is the argv Valid
 }GlobalArgv;
 
-static const char *optString = "o:cvhd";
+static const char *optString = "o:cfm:vhd";
 static const struct option longOpts[] = {
 	{"output", required_argument, NULL, 'o'},
 	{"check", no_argument, NULL, 'c'},
 	{"force", no_argument, NULL, 'f'},
+	{"memso", required_argument, NULL, 'm'},
 	{"verbose", no_argument, NULL, 'v'},
 	{"help", no_argument, NULL, 'h'},
 	{"debug", no_argument, NULL, 'd'}
 };
 
 int main(int argc, char *argv[]){
-	
+
 	if(argc <= 1){
 		usage();
 		return 0;
@@ -51,6 +55,8 @@ int main(int argc, char *argv[]){
 	
 	GlobalArgv.check = false;
 	GlobalArgv.force = false;
+	GlobalArgv.isMset = false;
+	GlobalArgv.memso = 0;
 	GlobalArgv.verbose = false;
 	GlobalArgv.debug = false;
 	GlobalArgv.isValid = true;
@@ -69,6 +75,10 @@ int main(int argc, char *argv[]){
 				break;
 			case 'f':
 				GlobalArgv.force = true;
+				break;
+			case 'm':
+				GlobalArgv.isMset = true;
+				GlobalArgv.memso = strtoul(optarg, NULL, 16);
 				break;
 			case 'v':
 				GlobalArgv.verbose = true;
@@ -97,6 +107,10 @@ int main(int argc, char *argv[]){
 
 
 	ELFReader reader(GlobalArgv.inFileName.c_str());
+	if(GlobalArgv.isMset){
+		reader.setDumpSoFile(true);
+		reader.setDumpSoBase(GlobalArgv.memso);
+	}
 	reader.read();
 	if(GlobalArgv.check){
 		DLOG("Enter check elf file");
