@@ -85,6 +85,8 @@ private:
 
 public:
 
+	bool isRead() { return didRead; }
+	bool isLoad() { return didLoad; }
 	int getDamageLevel() {return damageLevel; }
 
 	Elf32_Ehdr getElfHeader() { return elf_header; }

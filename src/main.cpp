@@ -4,6 +4,7 @@
 #include <string>
 #include "Log.h"
 #include "ELFReader.h"
+#include "ELFRebuilder.h"
 
 void usage(){
 	std::cout<<"So Rebuilder  --Powered by giglf\n"
@@ -96,10 +97,10 @@ int main(int argc, char *argv[]){
 
 
 	ELFReader reader(GlobalArgv.inFileName.c_str());
-	reader.readSofile();
+	reader.read();
 	if(GlobalArgv.check){
-		reader.damagePrint();
 		DLOG("Enter check elf file");
+		reader.damagePrint();
 	}
 
 	/**
@@ -112,8 +113,20 @@ int main(int argc, char *argv[]){
 	 * force rebuild the section headers.
 	 * Hope you can help me with it.
 	 */
-	//TODO: ELFRebuilder rebuilder(reader, force);
-
+	ELFRebuilder rebuilder(reader, GlobalArgv.force);
+	rebuilder.rebuild();
 	
+	uint8_t* data = rebuilder.getRebuildData();
+	size_t data_size = rebuilder.getRebuildDataSize();
+	FILE* fout = fopen(GlobalArgv.outFileName.c_str(), "wb");
+	if(fout == NULL){
+		ELOG("\"%s\" open error.", GlobalArgv.outFileName.c_str());
+		exit(EXIT_FAILURE);
+	}
+	fwrite(data, sizeof(uint8_t), data_size, fout);
+	fclose(fout);
+
+	LOG("File rebuild success. Output has placed at \"%s\".", GlobalArgv.outFileName.c_str());
+
 	return 0;
 }

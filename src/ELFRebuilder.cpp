@@ -18,10 +18,12 @@ ELFRebuilder::~ELFRebuilder(){
 
 bool ELFRebuilder::rebuild(){
 	if(force || reader.getDamageLevel() == 2){
+		if(!reader.isLoad()) reader.load();
 		return totalRebuild();
 	} else if(reader.getDamageLevel() == 1){
 		return simpleRebuild() && rebuildData();
 	}
+	return false;
 }
 
 
@@ -142,7 +144,13 @@ bool ELFRebuilder::totalRebuild(){
 		   rebuildFinish();
 }
 
-
+/**
+ * Expend file size to memory size. Because we will dump them 
+ * all from memory. After rebuild, the load size of the file 
+ * is exactly the memory size. We don't need to padding for the 
+ * page align. Because the data of the file is already align with 
+ * page.
+ */ 
 bool ELFRebuilder::rebuildPhdr(){
 	Elf32_Phdr* phdr = (Elf32_Phdr *)reader.getLoadedPhdr();
 	for(int i=0;i<reader.getPhdrNum();i++){
@@ -193,29 +201,29 @@ bool ELFRebuilder::readSoInfo(){
 				break;
 			case DT_SYMTAB:
 				si.symtab = (Elf32_Sym *) (dyn->d_un.d_ptr + base);
-				VLOG("symbol table found at %x\n", dyn->d_un.d_ptr);
+				VLOG("symbol table found at %x", dyn->d_un.d_ptr);
 				break;
 			case DT_PLTREL:
 				if (dyn->d_un.d_val != DT_REL) {
-					VLOG("unsupported DT_RELA in \"%s\"\n", si.name);
+					VLOG("unsupported DT_RELA in \"%s\"", si.name);
 					return false;
 				}
 				break;
 			case DT_JMPREL:
 				si.plt_rel = (Elf32_Rel*) (dyn->d_un.d_ptr + base);
-				VLOG("%s plt_rel (DT_JMPREL) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s plt_rel (DT_JMPREL) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_PLTRELSZ:
 				si.plt_rel_count = dyn->d_un.d_val / sizeof(Elf32_Rel);
-				VLOG("%s plt_rel_count (DT_PLTRELSZ) %d\n", si.name, si.plt_rel_count);
+				VLOG("%s plt_rel_count (DT_PLTRELSZ) %d", si.name, si.plt_rel_count);
 				break;
 			case DT_REL:
 				si.rel = (Elf32_Rel*) (dyn->d_un.d_ptr + base);
-				VLOG("%s rel (DT_REL) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s rel (DT_REL) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_RELSZ:
 				si.rel_count = dyn->d_un.d_val / sizeof(Elf32_Rel);
-				VLOG("%s rel_size (DT_RELSZ) %d\n", si.name, si.rel_count);
+				VLOG("%s rel_size (DT_RELSZ) %d", si.name, si.rel_count);
 				break;
 			case DT_PLTGOT:
 				/* Save this in case we decide to do lazy binding. We don't yet. */
@@ -226,39 +234,39 @@ bool ELFRebuilder::readSoInfo(){
 				// if the dynamic table is writable
 				break;
 			case DT_RELA:
-				VLOG("unsupported DT_RELA in \"%s\"\n", si.name);
+				VLOG("unsupported DT_RELA in \"%s\"", si.name);
 				return false;
 			case DT_INIT:
 				si.init_func = reinterpret_cast<void*>(dyn->d_un.d_ptr + base);
-				VLOG("%s constructors (DT_INIT) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s constructors (DT_INIT) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_FINI:
 				si.fini_func = reinterpret_cast<void*>(dyn->d_un.d_ptr + base);
-				VLOG("%s destructors (DT_FINI) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s destructors (DT_FINI) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_INIT_ARRAY:
 				si.init_array = reinterpret_cast<void**>(dyn->d_un.d_ptr + base);
-				VLOG("%s constructors (DT_INIT_ARRAY) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s constructors (DT_INIT_ARRAY) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_INIT_ARRAYSZ:
 				si.init_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
-				VLOG("%s constructors (DT_INIT_ARRAYSZ) %d\n", si.name, si.init_array_count);
+				VLOG("%s constructors (DT_INIT_ARRAYSZ) %d", si.name, si.init_array_count);
 				break;
 			case DT_FINI_ARRAY:
 				si.fini_array = reinterpret_cast<void**>(dyn->d_un.d_ptr + base);
-				VLOG("%s destructors (DT_FINI_ARRAY) found at %x\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s destructors (DT_FINI_ARRAY) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_FINI_ARRAYSZ:
 				si.fini_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
-				VLOG("%s destructors (DT_FINI_ARRAYSZ) %d\n", si.name, si.fini_array_count);
+				VLOG("%s destructors (DT_FINI_ARRAYSZ) %d", si.name, si.fini_array_count);
 				break;
 			case DT_PREINIT_ARRAY:
 				si.preinit_array = reinterpret_cast<void**>(dyn->d_un.d_ptr + base);
-				VLOG("%s constructors (DT_PREINIT_ARRAY) found at %d\n", si.name, dyn->d_un.d_ptr);
+				VLOG("%s constructors (DT_PREINIT_ARRAY) found at %d", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_PREINIT_ARRAYSZ:
 				si.preinit_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
-				VLOG("%s constructors (DT_PREINIT_ARRAYSZ) %d\n", si.preinit_array_count);
+				VLOG("%s constructors (DT_PREINIT_ARRAYSZ) %d", si.name,si.preinit_array_count);
 				break;
 			case DT_TEXTREL:
 				si.has_text_relocations = true;
@@ -307,10 +315,10 @@ bool ELFRebuilder::readSoInfo(){
 				break;
 			case DT_SONAME:
 				si.name = (const char *) (dyn->d_un.d_ptr + base);
-				VLOG("soname %s\n", si.name);
+				VLOG("soname %s", si.name);
 				break;
 			default:
-				VLOG("Unused DT entry: type 0x%08x arg 0x%08x\n", dyn->d_tag, dyn->d_un.d_val);
+				VLOG("Unused DT entry: type 0x%08x arg 0x%08x", dyn->d_tag, dyn->d_un.d_val);
 				break;
 		}
 	}
@@ -676,7 +684,7 @@ bool ELFRebuilder::rebuildShdr(){
 	// sort shdr by address and recalc size
 	for(int i = 1; i < shdrs.size(); i++) {
 		for(int j = i + 1; j < shdrs.size(); j++) {
-			if(shdrs[i].sh_addr > shdrs[j].sh_addr) {
+			if(shdrs[i].sh_offset > shdrs[j].sh_offset) {
 				// exchange i, j
 				Elf32_Shdr tmp = shdrs[i];
 				shdrs[i] = shdrs[j];
@@ -730,6 +738,28 @@ bool ELFRebuilder::rebuildRelocs(){
 }
 
 bool ELFRebuilder::rebuildFinish(){
-	//TODO:
+	size_t load_size = si.max_load - si.min_load;
+	rebuild_size = load_size + shstrtab.length() + shdrs.size()*sizeof(Elf32_Shdr);
+	
+	if(rebuild_data != NULL) delete []rebuild_data;
+	rebuild_data = new uint8_t[rebuild_size];
+
+	// load segment include elf header
+	memcpy(rebuild_data, (void *)si.load_bias, load_size);
+	// append shstrtab
+	memcpy(rebuild_data + load_size, shstrtab.c_str(), shstrtab.length());
+	// append section table
+	Elf32_Off shdrOffset = load_size + shstrtab.length();
+	memcpy(rebuild_data + shdrOffset, (void*)&shdrs[0], shdrs.size()*sizeof(Elf32_Shdr));
+
+	// repair the elf header
+	elf_header.e_shoff = shdrOffset;
+	elf_header.e_shentsize = sizeof(Elf32_Shdr);
+	elf_header.e_shnum = shdrs.size();
+	elf_header.e_shstrndx = sSHSTRTAB;
+	memcpy(rebuild_data, &elf_header, sizeof(elf_header));
+
+	VLOG("Rebuild data prepared.");
+	return true;
 }
 
