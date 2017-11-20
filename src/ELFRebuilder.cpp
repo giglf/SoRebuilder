@@ -596,7 +596,7 @@ bool ELFRebuilder::rebuildShdr(){
 		// In fact the .got is align 8.
 		while(shdr.sh_addr & 0x7){ shdr.sh_addr++; }
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = (Elf32_Addr)si.plt_got + 4*shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel) + 8 - shdr.sh_addr;
+		shdr.sh_size = (Elf32_Addr)si.plt_got - base + 4*shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel) + 12 - shdr.sh_addr;
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;

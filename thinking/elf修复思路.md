@@ -119,7 +119,7 @@ author: giglf
 
 - `.got` => `.got` 紧接着`.dynamic` ，并且，通过`DT_PLTGOT` 获得`_global_offset_table_`的地址，通过`.rel.plt` 的size算出`.got` 的尾地址，以此计算出`.got` 的size
   $$
-  size = addr(\_global\_offset\_table\_) +4*(.rel.plt.size)/sizeof(ELF32\_Rel) + 4*2 - addr(.got)
+  size = addr(\_global\_offset\_table\_) +4*(.rel.plt.size)/sizeof(ELF32\_Rel) + 4*3 - addr(.got)
   $$
 
 - `.data` => `.got` 的尾部即为.data段的地址，因为`.bss`不占空间，故`.data` 段的尾部即为load2的尾部
