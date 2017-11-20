@@ -111,7 +111,8 @@ public:
 size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
 								size_t phdr_count,
 								Elf32_Addr* out_min_vaddr = NULL,
-								Elf32_Addr* out_max_vaddr = NULL);
+								Elf32_Addr* out_max_vaddr = NULL,
+								Elf32_Addr* out_max_endAddress = NULL);
 
 void phdr_table_get_dynamic_section(const Elf32_Phdr* phdr_table,
 							   		int               phdr_count,

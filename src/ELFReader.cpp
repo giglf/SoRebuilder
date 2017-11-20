@@ -484,7 +484,8 @@ bool ELFReader::loadFileData(void *addr, size_t len, int offset){
 size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
                                 size_t phdr_count,
                                 Elf32_Addr* out_min_vaddr,
-                                Elf32_Addr* out_max_vaddr)
+                                Elf32_Addr* out_max_vaddr,
+								Elf32_Addr* out_max_endAddr)
 {
     Elf32_Addr min_vaddr = 0xFFFFFFFFU;
     Elf32_Addr max_vaddr = 0x00000000U;
@@ -509,6 +510,13 @@ size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
     if (!found_pt_load) {
         min_vaddr = 0x00000000U;
     }
+
+	// Add by giglf. We need to record the end of the segment.
+	// Not the end of the page. Thus we can use the end address 
+	// to append the .bss section and record the end of the .data.
+	if(out_max_endAddr != NULL){
+		*out_max_endAddr = max_vaddr;
+	}
 
     min_vaddr = PAGE_START(min_vaddr);
     max_vaddr = PAGE_END(max_vaddr);

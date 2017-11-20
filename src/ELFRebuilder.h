@@ -78,6 +78,7 @@ public:
 	size_t dynsym_size = 0;
 	Elf32_Addr* interp = nullptr;
 	size_t interp_size = 0;
+	Elf32_Addr loadSegEnd = 0;
 };
 
 class ELFRebuilder{

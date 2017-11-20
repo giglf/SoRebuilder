@@ -170,7 +170,7 @@ bool ELFRebuilder::readSoInfo(){
 	si.phnum = reader.getPhdrNum();
 
 	Elf32_Addr base = si.base;
-	phdr_table_get_load_size(si.phdr, si.phnum, &si.min_load, &si.max_load);
+	phdr_table_get_load_size(si.phdr, si.phnum, &si.min_load, &si.max_load, &si.loadSegEnd);
 
 	// get .dynamic table
 	phdr_table_get_dynamic_section(si.phdr, si.phnum, si.load_bias, &si.dynamic, &si.dynamic_count, &si.dynamic_flags);
@@ -626,7 +626,7 @@ bool ELFRebuilder::rebuildShdr(){
 		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
 		shdr.sh_addr = shdrs[sLAST].sh_addr + shdrs[sLAST].sh_size;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.max_load - shdr.sh_addr;
+		shdr.sh_size = si.loadSegEnd - shdr.sh_addr;
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
