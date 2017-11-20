@@ -1,10 +1,12 @@
+# This project develop platform have been changed to linux.
+# Because of some strange issuses with g++ parameter '-m32' under windows.
+
 CPP_SOURCES = $(wildcard src/*.cpp)
 HEADERS = $(wildcard src/*.h)
 
 OBJS = ${CPP_SOURCES:.cpp=.o}
-# if you make under linux or Mac
-# Please remove the suffix of .exe
-TARGET = sb.exe
+
+TARGET = sb
 
 CC = g++
 CFLAGS = -g -std=c++11 -m32
@@ -39,4 +41,4 @@ $(TARGET) : $(OBJS)
 # My suggestion is, just leave it...Don't use windows...(╯°□°)╯︵ ┻━┻
 
 clean:
-	"rm $(TARGET) $(OBJS)"
+	rm $(TARGET) $(OBJS)
