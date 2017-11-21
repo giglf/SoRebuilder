@@ -117,6 +117,12 @@ int main(int argc, char *argv[]){
 		reader.damagePrint();
 	}
 
+	// leave a way force to rebuild the section. Even though it is complete.
+	if(reader.getDamageLevel() == 0 && GlobalArgv.force == false){
+		LOG("\"%s\" is complete. Don't need repair.", GlobalArgv.inFileName.c_str());
+		return 0;
+	}
+
 	/**
 	 * Because judge if a so-file section headers fully damage or 
 	 * just missing address and offset is difficult to me. For example, 
@@ -141,6 +147,6 @@ int main(int argc, char *argv[]){
 	fclose(fout);
 
 	LOG("File rebuild success. Output has placed at \"%s\".", GlobalArgv.outFileName.c_str());
-
+	
 	return 0;
 }

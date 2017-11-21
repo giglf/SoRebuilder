@@ -87,7 +87,8 @@ public:
 
 	bool isRead() { return didRead; }
 	bool isLoad() { return didLoad; }
-	int getDamageLevel() {return damageLevel; }
+	int getDamageLevel() { return damageLevel; }
+	const char* getFileName() { return filename; }
 
 	Elf32_Ehdr getElfHeader() { return elf_header; }
 	Elf32_Shdr* getShdrTable() { return shdr_table; }

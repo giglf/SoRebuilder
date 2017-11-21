@@ -164,7 +164,7 @@ bool ELFRebuilder::rebuildPhdr(){
 }
 
 bool ELFRebuilder::readSoInfo(){
-	
+	si.name = reader.getFileName();
 	si.base = si.load_bias = reader.getLoadBias();
 	si.phdr = reader.getPhdrTable();
 	si.phnum = reader.getPhdrNum();
