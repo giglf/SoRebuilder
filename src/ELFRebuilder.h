@@ -62,7 +62,7 @@ public:
 
 	// ARM EABI section used for stack unwinding.
 	Elf32_Addr * ARM_exidx = nullptr;
-	size_t ARM_exidx_count = 0;
+	unsigned ARM_exidx_count = 0;
 	unsigned mips_symtabno = 0;
 	unsigned mips_local_gotno = 0;
 	unsigned mips_gotsym = 0;

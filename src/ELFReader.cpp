@@ -426,10 +426,16 @@ bool ELFReader::checkSectionHeader(){
 		if(isShdrValid){
 			Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
 			Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+			Elf32_Word align = shdr_table[i].sh_addralign;
 			//bits align
-			//FIXME: It looks like .got section align 8. But record 4 in it section header. No idea.
-			while(curAddr & (shdr_table[i].sh_addralign-1)) { curAddr++; }
-			while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
+			//It looks like .got section align 8. But record 4 in it section header. No idea.
+			// I figure out it is .got section by check the previous section.
+			// Because .got section always follow .dynamic section, that what i do.
+			if(shdr_table[i-1].sh_type == SHT_DYNAMIC){
+				align = 8;
+			}
+			while(curAddr & (align-1)) { curAddr++; }
+			while(curOffset & (align-1)) {curOffset++;}
 			// Beside Load segment, break
 			if(curOffset >= phdr_table[loadIndex[1]].p_filesz + phdr_table[loadIndex[1]].p_offset) { break; }
 
