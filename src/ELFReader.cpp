@@ -57,8 +57,10 @@ bool ELFReader::load(){
 	}
 	if(reserveAddressSpace() && loadSegments() && findPhdr()){
 		didLoad = true;
+		return didLoad;
 	}
-	return didLoad;
+	ELOG("Load segment failed.");
+	exit(EXIT_FAILURE);
 }
 
 // Reserve a virtual address range big enough to hold all loadable

@@ -1,5 +1,6 @@
 #include "ELFRebuilder.h"
 #include "Log.h"
+#include <cstdlib>
 
 ELFRebuilder::ELFRebuilder(ELFReader &_reader, bool _force)
 	: reader(_reader), force(_force){
@@ -145,11 +146,11 @@ bool ELFRebuilder::rebuildData(){
 
 bool ELFRebuilder::totalRebuild(){
 	VLOG("Using plan B to rebuild the section.");
-	return rebuildPhdr() && 
-		   readSoInfo() &&
-		   rebuildShdr() &&	
-		   rebuildRelocs() &&	
-		   rebuildFinish();
+	if(rebuildPhdr() && readSoInfo() && rebuildShdr() && rebuildRelocs() &&	rebuildFinish()){
+		return true;
+	}
+	ELOG("Using plan B to rebuild failed.");
+	exit(EXIT_FAILURE);
 }
 
 /**
