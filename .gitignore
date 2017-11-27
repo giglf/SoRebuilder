@@ -1,0 +1,6 @@
+# ignore vscode setting
+.vscode
+
+# ignore compile output
+sb
+*.o
