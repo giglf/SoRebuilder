@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include "elf.h"
+#include "exutil.h"
 
 class ELFReader{
 
@@ -24,7 +25,7 @@ private:
 	bool reserveAddressSpace();
 	bool loadSegments();
 	bool findPhdr();
-	bool checkPhdr(Elf32_Addr loaded);
+	bool checkPhdr(Elf_Addr loaded);
 
 	bool checkSectionHeader();
 	bool loadFileData(void *addr, size_t len, int offset);
@@ -59,29 +60,29 @@ private:
 	 * section.
 	 * Otherwise, we need to load the so file and rebuild the section.
 	 */
-	Elf32_Ehdr elf_header; 		// store elf header
+	Elf_Ehdr elf_header; 		// store elf header
 
-	Elf32_Phdr* phdr_table; 	// store program header table
-	Elf32_Half phdr_entrySize;	// program header entry size
+	Elf_Phdr* phdr_table; 	// store program header table
+	Elf_Half phdr_entrySize;	// program header entry size
 	size_t phdr_num;			// the number of program header
 	size_t phdr_size;			// size of program headers
 
 	void *midPart;				// the load address of the middle part between program table and section table
-	Elf32_Addr midPart_start;	// start address between program table and section table
-	Elf32_Addr midPart_end;		// end address between program table and section table
+	Elf_Addr midPart_start;	// start address between program table and section table
+	Elf_Addr midPart_end;		// end address between program table and section table
 	size_t midPart_size;		// size of the Middle part. 
 
-	Elf32_Shdr* shdr_table;		// store section header table
-	Elf32_Half shdr_entrySize;	// section header entry size
+	Elf_Shdr* shdr_table;		// store section header table
+	Elf_Half shdr_entrySize;	// section header entry size
 	size_t shdr_num;			// the number of section header
 	size_t shdr_size;			// size of section headers
 
 	/* Load information */
 	void* load_start;			// First page of reserved address space.
-	Elf32_Addr load_size;		// Size in bytes of reserved address space.
-	Elf32_Addr load_bias;		// Load bias.
+	Elf_Addr load_size;		// Size in bytes of reserved address space.
+	Elf_Addr load_bias;		// Load bias.
 
-	const Elf32_Phdr* loaded_phdr;	// Loaded phdr.
+	const Elf_Phdr* loaded_phdr;	// Loaded phdr.
 
 public:
 
@@ -90,10 +91,10 @@ public:
 	int getDamageLevel() { return damageLevel; }
 	const char* getFileName() { return filename; }
 
-	Elf32_Ehdr getElfHeader() { return elf_header; }
-	Elf32_Shdr* getShdrTable() { return shdr_table; }
+	Elf_Ehdr getElfHeader() { return elf_header; }
+	Elf_Shdr* getShdrTable() { return shdr_table; }
 	void* getMidPart() { return midPart; }
-	Elf32_Phdr* getPhdrTable() { return phdr_table; }
+	Elf_Phdr* getPhdrTable() { return phdr_table; }
 
 	size_t getPhdrSize() { return phdr_size; }
 	size_t getMidPartSize() { return midPart_size; }
@@ -102,44 +103,44 @@ public:
 	int getShdrNum() { return shdr_num; }
 	int getPhdrNum() { return phdr_num; }
 
-	const Elf32_Phdr* getLoadedPhdr() { return loaded_phdr; }
-	Elf32_Addr getLoadBias() { return load_bias; }
+	const Elf_Phdr* getLoadedPhdr() { return loaded_phdr; }
+	Elf_Addr getLoadBias() { return load_bias; }
 
 	void setDumpSoFile(bool dump) { dump_so_file = dump; }
-	void setDumpSoBase(Elf32_Addr base){ dump_so_base = base; }
+	void setDumpSoBase(Elf_Addr base){ dump_so_base = base; }
 	bool isDumpSoFile() { return dump_so_file; }
-	Elf32_Addr getDumpSoBase() { return dump_so_base; }
+	Elf_Addr getDumpSoBase() { return dump_so_base; }
 private:
 	bool dump_so_file = false;
-	Elf32_Addr dump_so_base = 0;
+	Elf_Addr dump_so_base = 0;
 
 };
 
 
 //The functions below are refer to android source
-size_t phdr_table_get_load_size(const Elf32_Phdr* phdr_table,
+size_t phdr_table_get_load_size(const Elf_Phdr* phdr_table,
 								size_t phdr_count,
-								Elf32_Addr* out_min_vaddr = NULL,
-								Elf32_Addr* out_max_vaddr = NULL,
-								Elf32_Addr* out_max_endAddress = NULL);
+								Elf_Addr* out_min_vaddr = NULL,
+								Elf_Addr* out_max_vaddr = NULL,
+								Elf_Addr* out_max_endAddress = NULL);
 
-void phdr_table_get_dynamic_section(const Elf32_Phdr* phdr_table,
+void phdr_table_get_dynamic_section(const Elf_Phdr* phdr_table,
 							   		int               phdr_count,
-							  		Elf32_Addr        load_bias,
-							   		Elf32_Dyn**       dynamic,
+							  		Elf_Addr        load_bias,
+							   		Elf_Dyn**       dynamic,
 							   		size_t*           dynamic_count,
-							   		Elf32_Word*       dynamic_flags);
+							   		Elf_Word*       dynamic_flags);
 
-int phdr_table_get_arm_exidx(const Elf32_Phdr* phdr_table,
+int phdr_table_get_arm_exidx(const Elf_Phdr* phdr_table,
 							 int               phdr_count,
-						 	 Elf32_Addr        load_bias,
-						 	 Elf32_Addr**      arm_exidx,
+						 	 Elf_Addr        load_bias,
+						 	 Elf_Addr**      arm_exidx,
 						 	 unsigned*         arm_exidix_count);
 
-void phdr_table_get_interpt_section(const Elf32_Phdr* phdr_table, 
+void phdr_table_get_interpt_section(const Elf_Phdr* phdr_table, 
 									int 			  phdr_count,
-									Elf32_Addr		  load_bias, 
-									Elf32_Addr**	  interp,
+									Elf_Addr		  load_bias, 
+									Elf_Addr**	  interp,
 									size_t*			  interp_size);
 
 
