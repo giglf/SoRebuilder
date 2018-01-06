@@ -91,6 +91,8 @@ bool ELFRebuilder::simpleRebuild(){
 			align = 8;
 		}
 		while(curAddr & (align-1)) { curAddr++; }
+		//specific situation
+		if(shdr_table[i].sh_type == SHT_NOBITS) align = 4;
 		while(curOffset & (align-1)) {curOffset++;}
 		
 		shdr_table[i].sh_addr = curAddr;
