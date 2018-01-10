@@ -9,7 +9,11 @@ OBJS = ${CPP_SOURCES:.cpp=.o}
 TARGET = sb
 
 CC = g++
-CFLAGS = -g -std=c++11 -Wformat=0
+ifeq ($(v), 64)
+	CFLAGS = -g -std=c++11 -Wformat=0
+else
+	CFLAGS = -g -std=c++11 -m32
+endif
 
 
 $(TARGET) : $(OBJS)
