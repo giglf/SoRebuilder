@@ -1,3 +1,4 @@
+#include "exutil.h"
 #include "ELFRebuilder.h"
 #include "Log.h"
 #include <cstdlib>
@@ -37,9 +38,9 @@ bool ELFRebuilder::rebuild(){
  */
 bool ELFRebuilder::simpleRebuild(){
 	VLOG("Starting repair the section.");
-	rebuild_size = sizeof(Elf32_Ehdr) + reader.getPhdrSize() + reader.getMidPartSize() + reader.getShdrSize();
-	Elf32_Shdr *shdr_table = reader.getShdrTable();
-	Elf32_Phdr *phdr_table = reader.getPhdrTable();
+	rebuild_size = sizeof(Elf_Ehdr) + reader.getPhdrSize() + reader.getMidPartSize() + reader.getShdrSize();
+	Elf_Shdr *shdr_table = reader.getShdrTable();
+	Elf_Phdr *phdr_table = reader.getPhdrTable();
 	int shdr_num = reader.getShdrNum();
 	int phdr_num = reader.getPhdrNum();
 
@@ -50,7 +51,7 @@ bool ELFRebuilder::simpleRebuild(){
 		}
 	}
 
-	int firstAddress = sizeof(Elf32_Ehdr) + reader.getPhdrSize();
+	int firstAddress = sizeof(Elf_Ehdr) + reader.getPhdrSize();
 	// build the first section.
 	shdr_table[1].sh_addr = shdr_table[1].sh_offset = firstAddress;
 	
@@ -59,8 +60,8 @@ bool ELFRebuilder::simpleRebuild(){
 	DLOG("Start repair the section mapping at first LOAD segment.");
 	for(i=2;i<shdr_num;i++){	//we have already check 2 section. So "i" start at 2.
 		
-		Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
-		Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+		Elf_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
+		Elf_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
 		// bits align
 		while(curAddr & (shdr_table[i].sh_addralign-1)) { curAddr++; }
 		while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
@@ -79,10 +80,10 @@ bool ELFRebuilder::simpleRebuild(){
 
 	for(i=i+1;i<shdr_num;i++){
 		
-		Elf32_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
-		Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+		Elf_Addr curAddr = shdr_table[i-1].sh_addr + shdr_table[i-1].sh_size;
+		Elf_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
 		
-		Elf32_Word align = shdr_table[i].sh_addralign;
+		Elf_Word align = shdr_table[i].sh_addralign;
 		//bits align
 		//It looks like .got section align 8. But record 4 in it section header. No idea.
 		// I figure out it is .got section by check the previous section.
@@ -109,7 +110,7 @@ bool ELFRebuilder::simpleRebuild(){
 	shdr_table[i].sh_addr = 0;
 	shdr_table[i].sh_offset = shdr_table[i-1].sh_offset;	
 	for(i=i+1;i<shdr_num;i++){
-		Elf32_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
+		Elf_Off curOffset = shdr_table[i-1].sh_offset + shdr_table[i-1].sh_size;
 		while(curOffset & (shdr_table[i].sh_addralign-1)) {curOffset++;}
 		
 		shdr_table[i].sh_addr = 0;
@@ -163,7 +164,7 @@ bool ELFRebuilder::totalRebuild(){
  * page.
  */ 
 bool ELFRebuilder::rebuildPhdr(){
-	Elf32_Phdr* phdr = (Elf32_Phdr *)reader.getLoadedPhdr();
+	Elf_Phdr* phdr = (Elf_Phdr *)reader.getLoadedPhdr();
 	for(int i=0;i<reader.getPhdrNum();i++){
 		phdr[i].p_filesz = phdr[i].p_memsz;
 		// p_paddr and p_align is not used in load, ignore it.
@@ -180,7 +181,7 @@ bool ELFRebuilder::readSoInfo(){
 	si.phdr = reader.getPhdrTable();
 	si.phnum = reader.getPhdrNum();
 
-	Elf32_Addr base = si.base;
+	Elf_Addr base = si.base;
 	phdr_table_get_load_size(si.phdr, si.phnum, &si.min_load, &si.max_load, &si.loadSegEnd);
 
 	// get .dynamic table
@@ -197,7 +198,7 @@ bool ELFRebuilder::readSoInfo(){
 
 	// scan the dynamic section and get useful information.
 	uint32_t needed_count = 0;
-	for(Elf32_Dyn* dyn = si.dynamic;dyn->d_tag != DT_NULL;dyn++){
+	for(Elf_Dyn* dyn = si.dynamic;dyn->d_tag != DT_NULL;dyn++){
 		switch(dyn->d_tag){
 			case DT_HASH:
 				si.hash = dyn->d_un.d_ptr + base;
@@ -211,7 +212,7 @@ bool ELFRebuilder::readSoInfo(){
 				VLOG("string table found at %x", dyn->d_un.d_ptr);
 				break;
 			case DT_SYMTAB:
-				si.symtab = (Elf32_Sym *) (dyn->d_un.d_ptr + base);
+				si.symtab = (Elf_Sym *) (dyn->d_un.d_ptr + base);
 				VLOG("symbol table found at %x", dyn->d_un.d_ptr);
 				break;
 			case DT_PLTREL:
@@ -221,24 +222,24 @@ bool ELFRebuilder::readSoInfo(){
 				}
 				break;
 			case DT_JMPREL:
-				si.plt_rel = (Elf32_Rel*) (dyn->d_un.d_ptr + base);
+				si.plt_rel = (Elf_Rel*) (dyn->d_un.d_ptr + base);
 				VLOG("%s plt_rel (DT_JMPREL) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_PLTRELSZ:
-				si.plt_rel_count = dyn->d_un.d_val / sizeof(Elf32_Rel);
+				si.plt_rel_count = dyn->d_un.d_val / sizeof(Elf_Rel);
 				VLOG("%s plt_rel_count (DT_PLTRELSZ) %d", si.name, si.plt_rel_count);
 				break;
 			case DT_REL:
-				si.rel = (Elf32_Rel*) (dyn->d_un.d_ptr + base);
+				si.rel = (Elf_Rel*) (dyn->d_un.d_ptr + base);
 				VLOG("%s rel (DT_REL) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_RELSZ:
-				si.rel_count = dyn->d_un.d_val / sizeof(Elf32_Rel);
+				si.rel_count = dyn->d_un.d_val / sizeof(Elf_Rel);
 				VLOG("%s rel_size (DT_RELSZ) %d", si.name, si.rel_count);
 				break;
 			case DT_PLTGOT:
 				/* Save this in case we decide to do lazy binding. We don't yet. */
-				si.plt_got = (Elf32_Addr *)(dyn->d_un.d_ptr + base);
+				si.plt_got = (Elf_Addr *)(dyn->d_un.d_ptr + base);
 				break;
 			case DT_DEBUG:
 				// Set the DT_DEBUG entry to the address of _r_debug for GDB
@@ -260,7 +261,7 @@ bool ELFRebuilder::readSoInfo(){
 				VLOG("%s constructors (DT_INIT_ARRAY) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_INIT_ARRAYSZ:
-				si.init_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
+				si.init_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf_Addr);
 				VLOG("%s constructors (DT_INIT_ARRAYSZ) %d", si.name, si.init_array_count);
 				break;
 			case DT_FINI_ARRAY:
@@ -268,7 +269,7 @@ bool ELFRebuilder::readSoInfo(){
 				VLOG("%s destructors (DT_FINI_ARRAY) found at %x", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_FINI_ARRAYSZ:
-				si.fini_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
+				si.fini_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf_Addr);
 				VLOG("%s destructors (DT_FINI_ARRAYSZ) %d", si.name, si.fini_array_count);
 				break;
 			case DT_PREINIT_ARRAY:
@@ -276,7 +277,7 @@ bool ELFRebuilder::readSoInfo(){
 				VLOG("%s constructors (DT_PREINIT_ARRAY) found at %d", si.name, dyn->d_un.d_ptr);
 				break;
 			case DT_PREINIT_ARRAYSZ:
-				si.preinit_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf32_Addr);
+				si.preinit_array_count = ((unsigned)dyn->d_un.d_val) / sizeof(Elf_Addr);
 				VLOG("%s constructors (DT_PREINIT_ARRAYSZ) %d", si.name,si.preinit_array_count);
 				break;
 			case DT_TEXTREL:
@@ -340,9 +341,9 @@ bool ELFRebuilder::readSoInfo(){
 bool ELFRebuilder::rebuildShdr(){
 	shstrtab.clear();
 	shdrs.clear();
-	Elf32_Addr base = si.load_bias;
+	Elf_Addr base = si.load_bias;
 
-	Elf32_Shdr shdr;
+	Elf_Shdr shdr;
 	memset((void*)&shdr, 0, sizeof(shdr));
 	shstrtab.push_back('\0');
 	shdrs.push_back(shdr);
@@ -357,7 +358,7 @@ bool ELFRebuilder::rebuildShdr(){
 		
 		shdr.sh_type = SHT_PROGBITS;
 		shdr.sh_flags = SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.interp - base;
+		shdr.sh_addr = (Elf_Addr)si.interp - base;
 		shdr.sh_offset = shdr.sh_addr;
 		shdr.sh_size = si.interp_size;
 		shdr.sh_link = 0;
@@ -378,7 +379,7 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_DYNSYM;
 		shdr.sh_flags = SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.symtab - base;
+		shdr.sh_addr = (Elf_Addr)si.symtab - base;
 		shdr.sh_offset = shdr.sh_addr;
 		shdr.sh_size = si.dynsym_size;
 		shdr.sh_link = 0; 		// link to dynstr later
@@ -399,7 +400,7 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_STRTAB;
 		shdr.sh_flags = SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.strtab - base;
+		shdr.sh_addr = (Elf_Addr)si.strtab - base;
 		shdr.sh_offset = shdr.sh_addr;
 		shdr.sh_size = si.strtabsize;
 		shdr.sh_link = 0;
@@ -422,7 +423,7 @@ bool ELFRebuilder::rebuildShdr(){
 		shdr.sh_flags = SHF_ALLOC;
 		shdr.sh_addr = si.hash - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = (si.nbucket + si.nchain + 2) * sizeof(Elf32_Addr);
+		shdr.sh_size = (si.nbucket + si.nchain + 2) * sizeof(Elf_Addr);
 		shdr.sh_link = sDYNSYM;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -441,9 +442,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_REL;
 		shdr.sh_flags = SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.rel - base;
+		shdr.sh_addr = (Elf_Addr)si.rel - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.rel_count * sizeof(Elf32_Rel);
+		shdr.sh_size = si.rel_count * sizeof(Elf_Rel);
 		shdr.sh_link = sDYNSYM;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -462,9 +463,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_REL;
 		shdr.sh_flags = SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.plt_rel - base;
+		shdr.sh_addr = (Elf_Addr)si.plt_rel - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.plt_rel_count * sizeof(Elf32_Rel);
+		shdr.sh_size = si.plt_rel_count * sizeof(Elf_Rel);
 		shdr.sh_link = sDYNSYM;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -485,7 +486,7 @@ bool ELFRebuilder::rebuildShdr(){
 		shdr.sh_flags = SHF_ALLOC | SHF_EXECINSTR;
 		shdr.sh_addr = shdrs[sRELPLT].sh_addr + shdrs[sRELPLT].sh_size;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = 20 + 12 * shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel);
+		shdr.sh_size = 20 + 12 * shdrs[sRELPLT].sh_size/sizeof(Elf_Rel);
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -498,7 +499,7 @@ bool ELFRebuilder::rebuildShdr(){
 	if(si.plt_rel != nullptr){
 		memset((void*)&shdr, 0, sizeof(shdr));
 		sTEXTTAB = shdrs.size();
-		Elf32_Word sLAST = sTEXTTAB - 1;
+		Elf_Word sLAST = sTEXTTAB - 1;
 		shdr.sh_name = shstrtab.length();
 		shstrtab.append(".text&.ARM.extab");
 		shstrtab.push_back('\0');
@@ -526,9 +527,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_ARM_EXIDX;
 		shdr.sh_flags = SHF_ALLOC | SHF_LINK_ORDER;
-		shdr.sh_addr = (Elf32_Addr)si.ARM_exidx - base;
+		shdr.sh_addr = (Elf_Addr)si.ARM_exidx - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.ARM_exidx_count * sizeof(Elf32_Addr);
+		shdr.sh_size = si.ARM_exidx_count * sizeof(Elf_Addr);
 		shdr.sh_link = sTEXTTAB;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -547,9 +548,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_FINI_ARRAY;
 		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.fini_array - base;
+		shdr.sh_addr = (Elf_Addr)si.fini_array - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.fini_array_count * sizeof(Elf32_Addr);
+		shdr.sh_size = si.fini_array_count * sizeof(Elf_Addr);
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -568,9 +569,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_INIT_ARRAY;
 		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.init_array - base;
+		shdr.sh_addr = (Elf_Addr)si.init_array - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.init_array_count * sizeof(Elf32_Addr);
+		shdr.sh_size = si.init_array_count * sizeof(Elf_Addr);
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 1;
@@ -589,9 +590,9 @@ bool ELFRebuilder::rebuildShdr(){
 
 		shdr.sh_type = SHT_DYNAMIC;
 		shdr.sh_flags = SHF_WRITE | SHF_ALLOC;
-		shdr.sh_addr = (Elf32_Addr)si.dynamic - base;
+		shdr.sh_addr = (Elf_Addr)si.dynamic - base;
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = si.dynamic_count * sizeof(Elf32_Dyn);
+		shdr.sh_size = si.dynamic_count * sizeof(Elf_Dyn);
 		shdr.sh_link = sDYNSTR;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -604,7 +605,7 @@ bool ELFRebuilder::rebuildShdr(){
 	if(si.plt_got != nullptr){
 		memset((void*)&shdr, 0, sizeof(shdr));
 		sGOT = shdrs.size();
-		Elf32_Word sLAST = sGOT - 1;
+		Elf_Word sLAST = sGOT - 1;
 		shdr.sh_name = shstrtab.length();
 		shstrtab.append(".got");
 		shstrtab.push_back('\0');
@@ -615,7 +616,7 @@ bool ELFRebuilder::rebuildShdr(){
 		// In fact the .got is align 8.
 		while(shdr.sh_addr & 0x7){ shdr.sh_addr++; }
 		shdr.sh_offset = shdr.sh_addr;
-		shdr.sh_size = (Elf32_Addr)si.plt_got - base + 4*shdrs[sRELPLT].sh_size/sizeof(Elf32_Rel) + 12 - shdr.sh_addr;
+		shdr.sh_size = (Elf_Addr)si.plt_got - base + 4*shdrs[sRELPLT].sh_size/sizeof(Elf_Rel) + 12 - shdr.sh_addr;
 		shdr.sh_link = 0;
 		shdr.sh_info = 0;
 		shdr.sh_addralign = 4;
@@ -628,7 +629,7 @@ bool ELFRebuilder::rebuildShdr(){
 	if(true){
 		memset((void*)&shdr, 0, sizeof(shdr));
 		sDATA = shdrs.size();
-		Elf32_Word sLAST = sDATA - 1;
+		Elf_Word sLAST = sDATA - 1;
 		shdr.sh_name = shstrtab.length();
 		shstrtab.append(".data");
 		shstrtab.push_back('\0');
@@ -650,7 +651,7 @@ bool ELFRebuilder::rebuildShdr(){
 	if(true){
 		memset((void*)&shdr, 0, sizeof(shdr));
 		sBSS = shdrs.size();
-		Elf32_Word sLAST = sBSS - 1;
+		Elf_Word sLAST = sBSS - 1;
 		shdr.sh_name = shstrtab.length();
 		shstrtab.append(".bss");
 		shstrtab.push_back('\0');
@@ -678,7 +679,7 @@ bool ELFRebuilder::rebuildShdr(){
 	shdr.sh_type = SHT_STRTAB;
 	shdr.sh_flags = 0;
 	shdr.sh_addr = 0;
-	shdr.sh_offset = (Elf32_Addr)si.max_load;
+	shdr.sh_offset = (Elf_Addr)si.max_load;
 	shdr.sh_size = shstrtab.length();
 	shdr.sh_link = 0;
 	shdr.sh_info = 0;
@@ -697,12 +698,12 @@ bool ELFRebuilder::rebuildShdr(){
 		for(int j = i + 1; j < shdrs.size(); j++) {
 			if(shdrs[i].sh_offset > shdrs[j].sh_offset) {
 				// exchange i, j
-				Elf32_Shdr tmp = shdrs[i];
+				Elf_Shdr tmp = shdrs[i];
 				shdrs[i] = shdrs[j];
 				shdrs[j] = tmp;
 
 				// exchange index
-				auto chgIdx = [i, j](Elf32_Word &t) {
+				auto chgIdx = [i, j](Elf_Word &t) {
 					if(t == i) {
 						t = j;
 					} else if(t == j) {
@@ -752,13 +753,13 @@ bool ELFRebuilder::rebuildShdr(){
  */
 bool ELFRebuilder::rebuildRelocs(){
 	if(reader.isDumpSoFile()){
-		auto relocate = [](Elf32_Addr base, Elf32_Rel* rel, size_t count, Elf32_Addr dump_base){
+		auto relocate = [](Elf_Addr base, Elf_Rel* rel, size_t count, Elf_Addr dump_base){
 			if(rel == nullptr || count == 0) return false;
 			for(int i=0;i<count;i++, rel++){
-				Elf32_Word type = rel->getType();
-				Elf32_Word sym = rel->getSymbol();
+				Elf_Word type = rel->getType();
+				Elf_Word sym = rel->getSymbol();
 
-				Elf32_Addr* prel = reinterpret_cast<Elf32_Addr*>(base + rel->r_offset);
+				Elf_Addr* prel = reinterpret_cast<Elf_Addr*>(base + rel->r_offset);
 				if(type == 0) continue; //R_*_NONE
 				switch(type){
 					// Only I know is RELATIVE.
@@ -783,7 +784,7 @@ bool ELFRebuilder::rebuildRelocs(){
 
 bool ELFRebuilder::rebuildFinish(){
 	size_t load_size = si.max_load - si.min_load;
-	rebuild_size = load_size + shstrtab.length() + shdrs.size()*sizeof(Elf32_Shdr);
+	rebuild_size = load_size + shstrtab.length() + shdrs.size()*sizeof(Elf_Shdr);
 	
 	if(rebuild_data != NULL) delete []rebuild_data;
 	rebuild_data = new uint8_t[rebuild_size];
@@ -793,12 +794,12 @@ bool ELFRebuilder::rebuildFinish(){
 	// append shstrtab
 	memcpy(rebuild_data + load_size, shstrtab.c_str(), shstrtab.length());
 	// append section table
-	Elf32_Off shdrOffset = load_size + shstrtab.length();
-	memcpy(rebuild_data + shdrOffset, (void*)&shdrs[0], shdrs.size()*sizeof(Elf32_Shdr));
+	Elf_Off shdrOffset = load_size + shstrtab.length();
+	memcpy(rebuild_data + shdrOffset, (void*)&shdrs[0], shdrs.size()*sizeof(Elf_Shdr));
 
 	// repair the elf header
 	elf_header.e_shoff = shdrOffset;
-	elf_header.e_shentsize = sizeof(Elf32_Shdr);
+	elf_header.e_shentsize = sizeof(Elf_Shdr);
 	elf_header.e_shnum = shdrs.size();
 	elf_header.e_shstrndx = sSHSTRTAB;
 	memcpy(rebuild_data, &elf_header, sizeof(elf_header));
